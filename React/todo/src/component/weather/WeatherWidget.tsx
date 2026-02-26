@@ -1,4 +1,4 @@
-import { useWeather } from "../hooks/useWeather";
+import { useWeather } from "../../hooks/useWeather";
 
 // 날씨 아이콘 코드를 이모지로 변환하는 헬퍼 함수
 function getWeatherEmoji(iconCode: string): string {

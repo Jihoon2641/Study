@@ -1,7 +1,9 @@
-import WeatherWidget from "./component/Weatherwidget";
+import { MemoWidget } from "./component/memo/MemoWidget.tsx"
 
 export default function App() {
   return (
-    <WeatherWidget />
+    <div className="flex flex-col gap-4">
+      <MemoWidget />
+    </div>
   )
 }
