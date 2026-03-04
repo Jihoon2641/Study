@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>브라우저 렌더링 시각화</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic+Coding&family=Gowun+Dodum&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #161922;
+      --surface2: #1e2330;
+      --border: #2a3045;
+      --text: #e2e8f0;
+      --muted: #7a8599;
+      --dom: #4ade80;
+      --dom-dim: #166534;
+      --css: #60a5fa;
+      --css-dim: #1e3a5f;
+      --render: #f97316;
+      --render-dim: #7c2d12;
+      --react: #a78bfa;
+      --react-dim: #4c1d95;
+      --yellow: #fbbf24;
+      --pink: #f472b6;
+      --mono: 'Nanum Gothic Coding', monospace;
+      --sans: 'Gowun Dodum', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    header {
+      padding: 36px 40px 20px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #111827 0%, var(--bg) 100%);
+    }
+
+    header h1 {
+      font-size: 1.7rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    header h1 span {
+      color: var(--dom);
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 6px;
+    }
+
+    .tabs {
+      display: flex;
+      padding: 0 40px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      gap: 4px;
+    }
+
+    .tab-btn {
+      padding: 14px 24px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 0.9rem;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+      color: var(--text);
+      border-bottom-color: var(--dom);
+    }
+
+    .tab-btn:hover:not(.active) {
+      color: var(--text);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ── SECTION LAYOUT ── */
+    .section {
+      padding: 32px 40px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    /* ── CODE BLOCK ── */
+    .code-area {
+      background: #0a0c10;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.8;
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .code-area .lang-badge {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .c-tag {
+      color: #f97316;
+    }
+
+    .c-attr {
+      color: #60a5fa;
+    }
+
+    .c-val {
+      color: #4ade80;
+    }
+
+    .c-sel {
+      color: #f472b6;
+    }
+
+    .c-prop {
+      color: #60a5fa;
+    }
+
+    .c-num {
+      color: #fbbf24;
+    }
+
+    .c-kw {
+      color: #a78bfa;
+    }
+
+    .c-fn {
+      color: #4ade80;
+    }
+
+    .c-str {
+      color: #fbbf24;
+    }
+
+    .c-cmt {
+      color: #4a5568;
+    }
+
+    /* ── TREE VISUALIZER ── */
+    .trees-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .trees-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .tree-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tree-box::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+    }
+
+    .tree-box.dom-tree::before {
+      background: var(--dom);
+    }
+
+    .tree-box.css-tree::before {
+      background: var(--css);
+    }
+
+    .tree-box.render-tree::before {
+      background: var(--render);
+    }
+
+    .tree-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .tree-box.dom-tree .tree-title {
+      color: var(--dom);
+    }
+
+    .tree-box.css-tree .tree-title {
+      color: var(--css);
+    }
+
+    .tree-box.render-tree .tree-title {
+      color: var(--render);
+    }
+
+    .tree-node {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 4px 0;
+      animation: fadeIn 0.4s ease both;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateX(-8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .tree-connector {
+      color: var(--border);
+      font-family: var(--mono);
+      user-select: none;
+      white-space: pre;
+      line-height: 1.6;
+    }
+
+    .node-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      line-height: 1.6;
+    }
+
+    .dom-tree .node-pill {
+      background: var(--dom-dim);
+      color: var(--dom);
+      border: 1px solid #22c55e40;
+    }
+
+    .css-tree .node-pill {
+      background: var(--css-dim);
+      color: var(--css);
+      border: 1px solid #3b82f640;
+    }
+
+    .render-tree .node-pill {
+      background: var(--render-dim);
+      color: var(--render);
+      border: 1px solid #f9731640;
+    }
+
+    .node-pill .badge {
+      font-size: 0.6rem;
+      padding: 1px 5px;
+      border-radius: 4px;
+      opacity: 0.8;
+    }
+
+    .dom-tree .badge {
+      background: #166534;
+    }
+
+    .css-tree .badge {
+      background: #1e3a5f;
+    }
+
+    .render-tree .badge {
+      background: #7c2d12;
+    }
+
+    /* ── ARROW BETWEEN TREES ── */
+    .tree-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .tree-arrow-symbol {
+      font-size: 1.6rem;
+      color: var(--yellow);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    .tree-arrow-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-align: center;
+      max-width: 80px;
+    }
+
+    /* ── MERGE AREA ── */
+    .merge-area {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .merge-area {
+        grid-template-columns: 1fr;
+      }
+
+      .tree-arrow {
+        flex-direction: row;
+      }
+
+      .tree-arrow-symbol {
+        transform: rotate(90deg);
+      }
+    }
+
+    /* ── PIPELINE STEPS ── */
+    .pipeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .pipe-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      padding: 18px 0;
+      border-left: 2px solid var(--border);
+      margin-left: 18px;
+      padding-left: 28px;
+      position: relative;
+      animation: slideIn 0.5s ease both;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .pipe-step:first-child {
+      border-left-color: var(--dom);
+    }
+
+    .pipe-step:nth-child(2) {
+      border-left-color: var(--css);
+    }
+
+    .pipe-step:nth-child(3) {
+      border-left-color: var(--render);
+    }
+
+    .pipe-step:nth-child(4) {
+      border-left-color: var(--yellow);
+    }
+
+    .pipe-step:nth-child(5) {
+      border-left-color: var(--pink);
+    }
+
+    .pipe-step:nth-child(6) {
+      border-left-color: var(--dom);
+    }
+
+    .pipe-step:last-child {
+      border-left: none;
+    }
+
+    .pipe-dot {
+      position: absolute;
+      left: -10px;
+      top: 22px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: 700;
+    }
+
+    .pipe-step:first-child .pipe-dot {
+      background: var(--dom);
+      color: #000;
+    }
+
+    .pipe-step:nth-child(2) .pipe-dot {
+      background: var(--css);
+      color: #000;
+    }
+
+    .pipe-step:nth-child(3) .pipe-dot {
+      background: var(--render);
+      color: #000;
+    }
+
+    .pipe-step:nth-child(4) .pipe-dot {
+      background: var(--yellow);
+      color: #000;
+    }
+
+    .pipe-step:nth-child(5) .pipe-dot {
+      background: var(--pink);
+      color: #000;
+    }
+
+    .pipe-step:nth-child(6) .pipe-dot {
+      background: var(--dom);
+      color: #000;
+    }
+
+    .pipe-content {
+      flex: 1;
+    }
+
+    .pipe-name {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+
+    .pipe-desc {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .pipe-highlight {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      margin-top: 6px;
+    }
+
+    /* ── REACT SECTION ── */
+    .vdom-compare {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 700px) {
+      .vdom-compare {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .vdom-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+
+    .vdom-box-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .vdom-node {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.9;
+    }
+
+    .vdom-changed {
+      background: #7c2d1250;
+      border: 1px solid var(--render);
+      border-radius: 4px;
+      padding: 0 6px;
+      color: var(--render);
+      position: relative;
+    }
+
+    .vdom-same {
+      color: var(--muted);
+    }
+
+    .diff-badge {
+      position: absolute;
+      right: -50px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--render);
+      color: #000;
+      font-size: 0.6rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .diff-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      color: var(--react);
+      animation: pulse 2s infinite;
+    }
+
+    /* ── SUMMARY TABLE ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    th {
+      background: var(--surface2);
+      padding: 10px 14px;
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border: 1px solid var(--border);
+    }
+
+    td {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      vertical-align: top;
+      line-height: 1.6;
+      color: var(--text);
+    }
+
+    tr:hover td {
+      background: var(--surface2);
+    }
+
+    .chip {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    .chip-green {
+      background: var(--dom-dim);
+      color: var(--dom);
+    }
+
+    .chip-blue {
+      background: var(--css-dim);
+      color: var(--css);
+    }
+
+    .chip-orange {
+      background: var(--render-dim);
+      color: var(--render);
+    }
+
+    .chip-purple {
+      background: var(--react-dim);
+      color: var(--react);
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <h1>🖥️ 브라우저 <span>렌더링 시각화</span></h1>
+    <p>DOM 트리 · CSSOM 트리 · Render Tree · React Virtual DOM 비교</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('html-tab', this)">① HTML 렌더링</button>
+    <button class="tab-btn" onclick="switchTab('tree-tab', this)">② 트리 구조</button>
+    <button class="tab-btn" onclick="switchTab('pipeline-tab', this)">③ 렌더링 파이프라인</button>
+    <button class="tab-btn" onclick="switchTab('react-tab', this)">④ React 렌더링</button>
+    <button class="tab-btn" onclick="switchTab('compare-tab', this)">⑤ 비교 요약</button>
+  </div>
+
+
+  <!-- ════════════════════════════════
+     TAB 1: HTML CODE
+════════════════════════════════ -->
+  <div id="html-tab" class="tab-content active">
+
+    <div class="section">
+      <div class="section-title">예제 HTML 코드 — 이 코드를 기준으로 트리를 그립니다</div>
+      <div class="code-area">
+        <span class="lang-badge">HTML</span>
+        <pre><span class="c-cmt">&lt;!-- 이 HTML이 브라우저에 들어오면 아래 과정이 일어납니다 --&gt;</span>
+<span class="c-tag">&lt;!DOCTYPE html&gt;</span>
+<span class="c-tag">&lt;html&gt;</span>
+  <span class="c-tag">&lt;head&gt;</span>
+    <span class="c-tag">&lt;title&gt;</span>카운터<span class="c-tag">&lt;/title&gt;</span>
+    <span class="c-tag">&lt;style&gt;</span>
+      <span class="c-sel">body</span>  { <span class="c-prop">background</span>: <span class="c-val">#0d0f14</span>; <span class="c-prop">color</span>: <span class="c-val">white</span>; }
+      <span class="c-sel">h1</span>   { <span class="c-prop">font-size</span>: <span class="c-num">2rem</span>; <span class="c-prop">color</span>: <span class="c-val">#4ade80</span>; }
+      <span class="c-sel">.box</span> { <span class="c-prop">padding</span>: <span class="c-num">20px</span>; <span class="c-prop">border</span>: <span class="c-num">1px</span> solid <span class="c-val">#ccc</span>; }
+      <span class="c-sel">span</span> { <span class="c-prop">font-weight</span>: <span class="c-val">bold</span>; }
+    <span class="c-tag">&lt;/style&gt;</span>
+  <span class="c-tag">&lt;/head&gt;</span>
+  <span class="c-tag">&lt;body&gt;</span>
+    <span class="c-tag">&lt;div</span> <span class="c-attr">class</span>=<span class="c-str">"box"</span><span class="c-tag">&gt;</span>
+      <span class="c-tag">&lt;h1&gt;</span>숫자: <span class="c-tag">&lt;span</span> <span class="c-attr">id</span>=<span class="c-str">"count"</span><span class="c-tag">&gt;</span>0<span class="c-tag">&lt;/span&gt;&lt;/h1&gt;</span>
+      <span class="c-tag">&lt;button&gt;</span>+1 증가<span class="c-tag">&lt;/button&gt;</span>
+    <span class="c-tag">&lt;/div&gt;</span>
+  <span class="c-tag">&lt;/body&gt;</span>
+<span class="c-tag">&lt;/html&gt;</span></pre>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">예제 CSS — 브라우저가 별도로 파싱합니다</div>
+      <div class="code-area">
+        <span class="lang-badge">CSS</span>
+        <pre><span class="c-cmt">/* 브라우저는 HTML과 CSS를 분리해서 각각 파싱합니다 */</span>
+
+<span class="c-sel">body</span>  { <span class="c-prop">background</span>: <span class="c-val">#0d0f14</span>;  <span class="c-prop">color</span>: <span class="c-val">white</span>;  <span class="c-prop">margin</span>: <span class="c-num">0</span>; }
+<span class="c-sel">h1</span>   { <span class="c-prop">font-size</span>: <span class="c-num">2rem</span>;        <span class="c-prop">color</span>: <span class="c-val">#4ade80</span>;              }
+<span class="c-sel">.box</span> { <span class="c-prop">padding</span>: <span class="c-num">20px</span>;          <span class="c-prop">border</span>: <span class="c-num">1px</span> solid <span class="c-val">#444</span>;    }
+<span class="c-sel">span</span> { <span class="c-prop">font-weight</span>: <span class="c-val">bold</span>;                                       }
+
+<span class="c-cmt">/* display:none → Render Tree에서 제외됩니다! */</span>
+<span class="c-sel">.hidden</span> { <span class="c-prop">display</span>: <span class="c-val">none</span>; }</pre>
+      </div>
+    </div>
+
+  </div><!-- /html-tab -->
+
+
+  <!-- ════════════════════════════════
+     TAB 2: TREE STRUCTURES
+════════════════════════════════ -->
+  <div id="tree-tab" class="tab-content">
+
+    <div class="section">
+      <div class="section-title">DOM 트리 + CSSOM 트리 → Render Tree 합체</div>
+      <div class="merge-area">
+
+        <!-- DOM TREE -->
+        <div class="tree-box dom-tree">
+          <div class="tree-title">① DOM Tree</div>
+          <div class="tree-node" style="animation-delay:0s">
+            <span class="tree-connector"> </span>
+            <span class="node-pill">html</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.06s">
+            <span class="tree-connector">├─ </span>
+            <span class="node-pill">head</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.12s">
+            <span class="tree-connector">│ └─ </span>
+            <span class="node-pill">title</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.18s">
+            <span class="tree-connector">└─ </span>
+            <span class="node-pill">body</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.24s">
+            <span class="tree-connector"> └─ </span>
+            <span class="node-pill">div.box</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.30s">
+            <span class="tree-connector"> ├─ </span>
+            <span class="node-pill">h1</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.36s">
+            <span class="tree-connector"> │ └─ </span>
+            <span class="node-pill">span#count <span class="badge">0</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.42s">
+            <span class="tree-connector"> └─ </span>
+            <span class="node-pill">button <span class="badge">+1</span></span>
+          </div>
+          <div style="margin-top:14px; font-size:0.72rem; color:var(--muted); line-height:1.7;">
+            HTML을 파싱해서 만든 노드 트리<br>
+            구조(Structure)만 담당
+          </div>
+        </div>
+
+        <!-- ARROW 1 -->
+        <div class="tree-arrow">
+          <div class="tree-arrow-symbol">⊕</div>
+          <div class="tree-arrow-label">합체<br>(Attach)</div>
+        </div>
+
+        <!-- CSSOM TREE -->
+        <div class="tree-box css-tree">
+          <div class="tree-title">② CSSOM Tree</div>
+          <div class="tree-node" style="animation-delay:.05s">
+            <span class="tree-connector"> </span>
+            <span class="node-pill">html</span>
+          </div>
+          <div class="tree-node" style="animation-delay:.10s">
+            <span class="tree-connector">└─ </span>
+            <span class="node-pill">body <span class="badge">bg:#0d0f14</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.16s">
+            <span class="tree-connector"> └─ </span>
+            <span class="node-pill">div.box <span class="badge">p:20px</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.22s">
+            <span class="tree-connector"> ├─ </span>
+            <span class="node-pill">h1 <span class="badge">2rem</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.28s">
+            <span class="tree-connector"> │ └─ </span>
+            <span class="node-pill">span <span class="badge">bold</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.34s">
+            <span class="tree-connector"> └─ </span>
+            <span class="node-pill">button</span>
+          </div>
+          <div style="margin-top:14px; font-size:0.72rem; color:var(--muted); line-height:1.7;">
+            CSS를 파싱해서 만든 스타일 트리<br>
+            스타일(Style)만 담당
+          </div>
+        </div>
+
+        <!-- ARROW 2 -->
+        <div class="tree-arrow">
+          <div class="tree-arrow-symbol">→</div>
+          <div class="tree-arrow-label">생성</div>
+        </div>
+
+        <!-- RENDER TREE -->
+        <div class="tree-box render-tree">
+          <div class="tree-title">③ Render Tree</div>
+          <div class="tree-node" style="animation-delay:.1s">
+            <span class="tree-connector"> </span>
+            <span class="node-pill">body <span class="badge">bg+color</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.16s">
+            <span class="tree-connector">└─ </span>
+            <span class="node-pill">div.box <span class="badge">border</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.22s">
+            <span class="tree-connector"> ├─ </span>
+            <span class="node-pill">h1 <span class="badge">2rem+green</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.28s">
+            <span class="tree-connector"> │ └─ </span>
+            <span class="node-pill">span <span class="badge">bold</span></span>
+          </div>
+          <div class="tree-node" style="animation-delay:.34s">
+            <span class="tree-connector"> └─ </span>
+            <span class="node-pill">button</span>
+          </div>
+          <div
+            style="margin-top:14px; padding:8px 10px; background:#7c2d1230; border:1px solid #f9731640; border-radius:6px; font-size:0.71rem; color:var(--render); line-height:1.7;">
+            ⚠️ head, title, display:none 요소는<br>
+            Render Tree에서 <strong>제외</strong>됩니다!
+          </div>
+          <div style="margin-top:8px; font-size:0.72rem; color:var(--muted); line-height:1.7;">
+            DOM + CSSOM 합체<br>
+            화면에 그릴 것만 남김
+          </div>
+        </div>
+
+      </div><!-- /merge-area -->
+    </div>
+
+    <div class="section">
+      <div class="section-title">display:none이 Render Tree에서 제외되는 이유</div>
+      <div class="code-area">
+        <span class="lang-badge">CSS + 설명</span>
+        <pre><span class="c-cmt">/* DOM Tree에는 존재 */</span>
+<span class="c-tag">&lt;p</span> <span class="c-attr">class</span>=<span class="c-str">"hidden"</span><span class="c-tag">&gt;</span>비밀 텍스트<span class="c-tag">&lt;/p&gt;</span>
+
+<span class="c-sel">.hidden</span> { <span class="c-prop">display</span>: <span class="c-val">none</span>; }
+
+<span class="c-cmt">/*
+  DOM Tree:    html > body > div.box > p.hidden   ← 있음
+  CSSOM Tree:  .hidden { display: none }          ← 있음
+  Render Tree: p.hidden                           ← ❌ 제외!
+  
+  display:none = "화면에 공간 자체를 차지하지 않음"
+  visibility:hidden = Render Tree에 포함되지만 투명 (공간 차지)
+*/</span></pre>
+      </div>
+    </div>
+
+  </div><!-- /tree-tab -->
+
+
+  <!-- ════════════════════════════════
+     TAB 3: FULL PIPELINE
+════════════════════════════════ -->
+  <div id="pipeline-tab" class="tab-content">
+
+    <div class="section">
+      <div class="section-title">브라우저 렌더링 전체 파이프라인 (6단계)</div>
+      <div class="pipeline">
+
+        <div class="pipe-step">
+          <div class="pipe-dot">1</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--dom)">① HTML Parsing → DOM Tree 생성</div>
+            <div class="pipe-desc">
+              브라우저가 HTML 파일을 위에서 아래로 읽으며 노드를 만들고 트리를 구성합니다.<br>
+              태그를 만나면 노드 생성 → 부모/자식 관계를 파악 → 트리 완성
+            </div>
+            <div class="pipe-highlight">&lt;div&gt; → HTMLDivElement 노드 생성</div>
+          </div>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-dot">2</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--css)">② CSS Parsing → CSSOM Tree 생성</div>
+            <div class="pipe-desc">
+              &lt;style&gt; 태그 또는 .css 파일을 파싱해서 스타일 규칙 트리를 만듭니다.<br>
+              이 단계는 HTML 파싱과 <strong>병렬</strong>로 진행됩니다.
+            </div>
+            <div class="pipe-highlight">h1 { color: green } → h1 노드에 스타일 연결</div>
+          </div>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-dot">3</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--render)">③ Render Tree 생성</div>
+            <div class="pipe-desc">
+              DOM + CSSOM을 합쳐서 <strong>실제로 화면에 보여야 할 노드</strong>만 남긴 트리를 만듭니다.<br>
+              head, title, display:none은 이 트리에서 제외됩니다.
+            </div>
+            <div class="pipe-highlight">DOM ⊕ CSSOM = Render Tree</div>
+          </div>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-dot">4</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--yellow)">④ Layout (Reflow)</div>
+            <div class="pipe-desc">
+              각 노드의 정확한 <strong>위치(x,y)와 크기(width, height)</strong>를 계산합니다.<br>
+              뷰포트 크기, 폰트 크기, padding/margin 등을 모두 고려합니다.
+            </div>
+            <div class="pipe-highlight">div.box → x:0, y:0, w:800px, h:120px</div>
+          </div>
+        </div>
+
+        <div class="pipe-step">
+          <div class="pipe-dot">5</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--pink)">⑤ Paint (Rasterize)</div>
+            <div class="pipe-desc">
+              Layout에서 계산된 정보를 바탕으로 실제 <strong>픽셀을 화면에 그립니다.</strong><br>
+              텍스트, 색상, 이미지, 그림자, 테두리를 레이어로 그립니다.
+            </div>
+            <div class="pipe-highlight">h1 → 픽셀로 초록색 텍스트 렌더링</div>
+          </div>
+        </div>
+
+        <div class="pipe-step" style="border-left: none;">
+          <div class="pipe-dot" style="background:var(--dom)">6</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--dom)">⑥ Composite</div>
+            <div class="pipe-desc">
+              여러 레이어를 합성해서 최종 화면을 완성합니다.<br>
+              GPU가 이 과정에 참여합니다. ✅ 이 단계 완료 후 화면에 보입니다!
+            </div>
+            <div class="pipe-highlight">레이어1 + 레이어2 + ... = 최종 화면 🖥️</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">JS로 DOM 변경 시 — Reflow vs Repaint</div>
+      <div class="code-area">
+        <span class="lang-badge">JavaScript</span>
+        <pre><span class="c-cmt">// ❗ Reflow 발생 — 크기/위치가 바뀌어 Layout부터 다시 계산</span>
+<span class="c-fn">document</span>.<span class="c-fn">getElementById</span>(<span class="c-str">'box'</span>).style.width = <span class="c-str">'200px'</span>;
+<span class="c-cmt">//                                ④ Layout → ⑤ Paint → ⑥ Composite</span>
+
+<span class="c-cmt">// ❗ Repaint만 발생 — 위치는 그대로, 색깔만 바뀜</span>
+<span class="c-fn">document</span>.<span class="c-fn">getElementById</span>(<span class="c-str">'box'</span>).style.color = <span class="c-str">'red'</span>;
+<span class="c-cmt">//                                ⑤ Paint → ⑥ Composite (Layout 생략)</span>
+
+<span class="c-cmt">// ✅ 가장 빠름 — transform은 Composite 단계만 사용</span>
+<span class="c-fn">document</span>.<span class="c-fn">getElementById</span>(<span class="c-str">'box'</span>).style.transform = <span class="c-str">'translateX(10px)'</span>;
+<span class="c-cmt">//                                ⑥ Composite만 (GPU 처리)</span></pre>
+      </div>
+    </div>
+
+  </div><!-- /pipeline-tab -->
+
+
+  <!-- ════════════════════════════════
+     TAB 4: REACT RENDERING
+════════════════════════════════ -->
+  <div id="react-tab" class="tab-content">
+
+    <div class="section">
+      <div class="section-title">React 예제 코드</div>
+      <div class="code-area">
+        <span class="lang-badge">JSX (React)</span>
+        <pre><span class="c-kw">import</span> { <span class="c-fn">useState</span> } <span class="c-kw">from</span> <span class="c-str">'react'</span>;
+
+<span class="c-kw">function</span> <span class="c-fn">Counter</span>() {
+  <span class="c-cmt">// ① State 선언: count = 0</span>
+  <span class="c-kw">const</span> [count, setCount] = <span class="c-fn">useState</span>(<span class="c-num">0</span>);
+
+  <span class="c-kw">function</span> <span class="c-fn">increase</span>() {
+    <span class="c-fn">setCount</span>(count + <span class="c-num">1</span>);  <span class="c-cmt">// ② State 변경 → 리렌더링 트리거</span>
+  }
+
+  <span class="c-cmt">// ③ JSX 반환 = Virtual DOM 설계도</span>
+  <span class="c-kw">return</span> (
+    <span class="c-tag">&lt;div</span> <span class="c-attr">className</span>=<span class="c-str">"box"</span><span class="c-tag">&gt;</span>
+      <span class="c-tag">&lt;h1&gt;</span>숫자: <span class="c-tag">&lt;span&gt;</span>{count}<span class="c-tag">&lt;/span&gt;&lt;/h1&gt;</span>
+      <span class="c-tag">&lt;button</span> <span class="c-attr">onClick</span>={<span class="c-fn">increase</span>}<span class="c-tag">&gt;</span>+1 증가<span class="c-tag">&lt;/button&gt;</span>
+    <span class="c-tag">&lt;/div&gt;</span>
+  );
+}
+
+<span class="c-cmt">/*
+  JSX는 사실 이렇게 변환됩니다 (Babel):
+  React.createElement('div', {className:'box'},
+    React.createElement('h1', null, '숫자: ',
+      React.createElement('span', null, count)
+    ),
+    React.createElement('button', {onClick: increase}, '+1 증가')
+  )
+*/</span></pre>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Virtual DOM Diffing — 바뀐 부분만 찾아서 업데이트</div>
+      <div class="vdom-compare">
+
+        <div class="vdom-box">
+          <div class="vdom-box-title">🔵 이전 Virtual DOM (count = 0)</div>
+          <div class="vdom-node">
+            <div class="vdom-same">div.box</div>
+            <div class="vdom-same"> └ h1</div>
+            <div class="vdom-same"> ├ "숫자: "</div>
+            <div style="padding-left:2.2em">└ span</div>
+            <div style="padding-left:3.2em"> └ <span class="vdom-same">"0"</span></div>
+            <div class="vdom-same"> └ button</div>
+            <div class="vdom-same"> └ "+1 증가"</div>
+          </div>
+        </div>
+
+        <div class="diff-arrow">⇒</div>
+
+        <div class="vdom-box">
+          <div class="vdom-box-title">🔴 새 Virtual DOM (count = 1)</div>
+          <div class="vdom-node">
+            <div class="vdom-same">div.box</div>
+            <div class="vdom-same"> └ h1</div>
+            <div class="vdom-same"> ├ "숫자: "</div>
+            <div style="padding-left:2.2em">└ span</div>
+            <div style="padding-left:3.2em; position:relative">
+              └ <span class="vdom-changed">"1" <span class="diff-badge">변경!</span></span>
+            </div>
+            <div class="vdom-same"> └ button</div>
+            <div class="vdom-same"> └ "+1 증가"</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div
+        style="margin-top:18px; padding:14px 18px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; font-size:0.82rem; line-height:1.8; color:var(--muted);">
+        🔍 <strong style="color:var(--text)">Diffing 결과</strong> → span 안의 텍스트 노드 <strong
+          style="color:var(--render)">"0" → "1"</strong> 만 변경됨<br>
+        ⚡ <strong style="color:var(--text)">Reconciliation</strong> → 실제 DOM에서 해당 텍스트 노드 <strong>하나만</strong> 업데이트<br>
+        🚫 나머지 div, h1, button은 <strong style="color:var(--dom)">건드리지 않음</strong> = 성능 최적화
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">React 렌더링 전체 흐름</div>
+      <div class="pipeline">
+        <div class="pipe-step">
+          <div class="pipe-dot" style="background:var(--react);color:#000">1</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--react)">JSX → React.createElement()</div>
+            <div class="pipe-desc">Babel이 JSX를 브라우저가 이해하는 JS 함수 호출로 변환합니다.</div>
+            <div class="pipe-highlight">&lt;h1&gt; → React.createElement('h1', null, ...)</div>
+          </div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-dot" style="background:var(--react);color:#000">2</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--react)">Virtual DOM 생성 (메모리)</div>
+            <div class="pipe-desc">React가 메모리 안에 가상의 DOM 트리를 만듭니다. 실제 DOM보다 훨씬 가볍습니다.</div>
+            <div class="pipe-highlight">{ type:'div', props:{...}, children:[...] }</div>
+          </div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-dot" style="background:var(--react);color:#000">3</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--react)">최초: 실제 DOM에 마운트</div>
+            <div class="pipe-desc">처음 렌더링 시, Virtual DOM을 실제 DOM으로 변환해서 브라우저에 삽입합니다.</div>
+            <div class="pipe-highlight">ReactDOM.createRoot(root).render(&lt;App/&gt;)</div>
+          </div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-dot" style="background:var(--render);color:#000">4</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--render)">State 변경 → 리렌더링</div>
+            <div class="pipe-desc">setCount() 호출 → 컴포넌트 함수 재실행 → 새 Virtual DOM 생성됩니다.</div>
+            <div class="pipe-highlight">setCount(1) → Counter() 재실행</div>
+          </div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-dot" style="background:var(--yellow);color:#000">5</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--yellow)">Diffing (비교)</div>
+            <div class="pipe-desc">이전 Virtual DOM과 새 Virtual DOM을 비교해서 변경된 노드를 찾습니다.</div>
+            <div class="pipe-highlight">span "0" ≠ span "1" → 변경 감지</div>
+          </div>
+        </div>
+        <div class="pipe-step" style="border:none">
+          <div class="pipe-dot" style="background:var(--dom);color:#000">6</div>
+          <div class="pipe-content">
+            <div class="pipe-name" style="color:var(--dom)">Reconciliation → 최소 업데이트</div>
+            <div class="pipe-desc">변경된 부분만 실제 DOM에 반영합니다. 브라우저의 Paint/Reflow를 최소화합니다.</div>
+            <div class="pipe-highlight">span.textContent = "1" ← 이것만!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /react-tab -->
+
+
+  <!-- ════════════════════════════════
+     TAB 5: COMPARE
+════════════════════════════════ -->
+  <div id="compare-tab" class="tab-content">
+
+    <div class="section">
+      <div class="section-title">HTML vs React 렌더링 핵심 비교</div>
+      <table>
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>HTML + 바닐라 JS</th>
+            <th>React</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>DOM 업데이트</strong></td>
+            <td>개발자가 직접<br><code>getElementById</code> → 수동 수정</td>
+            <td>State 변경 → React 자동 처리<br>(Virtual DOM Diffing)</td>
+          </tr>
+          <tr>
+            <td><strong>트리 구조</strong></td>
+            <td>DOM Tree → CSSOM → Render Tree<br>→ Layout → Paint</td>
+            <td>JSX → Virtual DOM → 실제 DOM<br>→ Diffing → 최소 업데이트</td>
+          </tr>
+          <tr>
+            <td><strong>Reflow 발생</strong></td>
+            <td>width/height 변경 시<br>전체 레이아웃 재계산 위험</td>
+            <td>변경된 노드만 업데이트<br>불필요한 Reflow 최소화</td>
+          </tr>
+          <tr>
+            <td><strong>코드 복잡도</strong></td>
+            <td>요소가 늘수록<br>셀렉터 코드가 폭발적으로 증가</td>
+            <td>State만 관리하면 됨<br>컴포넌트로 분리 가능</td>
+          </tr>
+          <tr>
+            <td><strong>적합한 경우</strong></td>
+            <td><span class="chip chip-green">정적 페이지</span> <span class="chip chip-green">간단한 사이트</span></td>
+            <td><span class="chip chip-purple">복잡한 UI</span> <span class="chip chip-purple">동적 데이터</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">렌더링 성능 키워드 정리</div>
+      <table>
+        <thead>
+          <tr>
+            <th>용어</th>
+            <th>의미</th>
+            <th>발생 시점</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="chip chip-green">Reflow</span></td>
+            <td>레이아웃 재계산 (가장 무거움)</td>
+            <td>width, height, position 변경 시</td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-orange">Repaint</span></td>
+            <td>픽셀 재그리기</td>
+            <td>color, background 변경 시</td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-blue">Composite</span></td>
+            <td>레이어 합성만 (가장 가벼움)</td>
+            <td>transform, opacity 변경 시</td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-purple">Diffing</span></td>
+            <td>Virtual DOM 이전/이후 비교</td>
+            <td>React State 변경 시</td>
+          </tr>
+          <tr>
+            <td><span class="chip chip-purple">Reconciliation</span></td>
+            <td>변경된 부분만 실제 DOM 반영</td>
+            <td>React Diffing 완료 후</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /compare-tab -->
+
+
+  <script>
+    function switchTab(id, btn) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      btn.classList.add('active');
+    }
+  </script>
+
+</body>
+
+</html>

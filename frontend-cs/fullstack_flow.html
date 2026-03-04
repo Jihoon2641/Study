@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>풀스택 요청 흐름 시각화</title>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic+Coding&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080b12;
+  --surface: #0f1420;
+  --surface2: #171e2e;
+  --surface3: #1e2740;
+  --border: #252f48;
+  --text: #dde4f0;
+  --muted: #6a7a99;
+
+  --client:  #34d399; --client-dim:  #064e3b;
+  --network: #f59e0b; --network-dim: #78350f;
+  --server:  #60a5fa; --server-dim:  #1e3a5f;
+  --db:      #f472b6; --db-dim:      #831843;
+  --react:   #a78bfa; --react-dim:   #3b1f8c;
+  --spring:  #86efac; --spring-dim:  #14532d;
+
+  --mono: 'Nanum Gothic Coding', monospace;
+  --sans: 'Gowun Dodum', sans-serif;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
+
+/* ─── HEADER ─── */
+header{
+  padding:32px 40px 22px;
+  background:linear-gradient(180deg,#0d1526 0%,var(--bg) 100%);
+  border-bottom:1px solid var(--border);
+}
+header h1{font-size:1.6rem;letter-spacing:-.5px;}
+header h1 em{font-style:normal;color:var(--network);}
+header p{color:var(--muted);font-size:.85rem;margin-top:6px;}
+
+/* ─── TABS ─── */
+.tabs{
+  display:flex;gap:2px;padding:0 40px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  overflow-x:auto;
+}
+.tab{
+  padding:13px 20px;background:none;border:none;
+  color:var(--muted);font-family:var(--sans);font-size:.85rem;
+  cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;
+  transition:all .2s;
+}
+.tab.active{color:var(--text);border-bottom-color:var(--network);}
+.tab:hover:not(.active){color:var(--text);}
+
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+
+/* ─── SECTION ─── */
+.section{padding:28px 40px;border-bottom:1px solid var(--border);}
+.section-title{
+  font-size:.68rem;text-transform:uppercase;letter-spacing:2px;
+  color:var(--muted);margin-bottom:16px;
+}
+
+/* ─── CODE ─── */
+.code{
+  background:#060810;border:1px solid var(--border);border-radius:10px;
+  padding:18px 22px;font-family:var(--mono);font-size:.8rem;line-height:1.85;
+  overflow-x:auto;position:relative;
+}
+.code .lang{position:absolute;top:9px;right:13px;font-size:.65rem;color:var(--muted);letter-spacing:1px;}
+.ct{color:#f97316;} .ca{color:#60a5fa;} .cv{color:#4ade80;}
+.cs{color:#f472b6;} .cp{color:#60a5fa;} .cn{color:#fbbf24;}
+.ck{color:#a78bfa;} .cf{color:#34d399;} .cst{color:#fbbf24;}
+.cm{color:#374151;}
+
+/* ─── PIPELINE ─── */
+.pipeline{display:flex;flex-direction:column;}
+.pipe{
+  display:flex;align-items:flex-start;gap:18px;
+  padding:18px 0 18px 32px;
+  border-left:2px solid var(--border);
+  margin-left:16px;position:relative;
+  animation:fadein .4s ease both;
+}
+.pipe:last-child{border-left-color:transparent;}
+@keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.pipe-dot{
+  position:absolute;left:-10px;top:22px;
+  width:18px;height:18px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:.6rem;font-weight:700;flex-shrink:0;
+}
+
+.pipe-body{flex:1;}
+.pipe-name{font-size:.95rem;font-weight:700;margin-bottom:4px;}
+.pipe-desc{color:var(--muted);font-size:.82rem;line-height:1.65;}
+.pill{
+  display:inline-block;padding:2px 9px;border-radius:20px;
+  font-family:var(--mono);font-size:.72rem;margin-top:6px;
+}
+
+/* ─── BIG FLOW DIAGRAM ─── */
+.flow-diagram{
+  display:flex;flex-direction:column;gap:0;
+  position:relative;
+}
+
+.flow-row{
+  display:flex;align-items:stretch;gap:0;
+}
+
+.flow-layer{
+  flex:1;padding:18px 20px;
+  border:1px solid var(--border);
+  border-radius:0;
+  position:relative;
+  transition:background .2s;
+}
+.flow-layer:hover{background:var(--surface3);}
+
+.flow-layer-label{
+  font-size:.62rem;text-transform:uppercase;letter-spacing:2px;
+  font-weight:700;margin-bottom:10px;
+}
+
+.flow-layer-content{font-size:.8rem;color:var(--muted);line-height:1.7;}
+
+.flow-arrow-col{
+  display:flex;align-items:center;justify-content:center;
+  width:48px;flex-shrink:0;
+  font-size:1.3rem;
+  color:var(--network);
+  animation:pulse 2.5s infinite;
+}
+.flow-arrow-down{
+  display:flex;align-items:center;justify-content:center;
+  padding:6px 0;font-size:1.4rem;color:var(--network);
+  animation:pulse 2.5s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+.layer-client   .flow-layer-label{color:var(--client);}
+.layer-network  .flow-layer-label{color:var(--network);}
+.layer-spring   .flow-layer-label{color:var(--spring);}
+.layer-db       .flow-layer-label{color:var(--db);}
+
+/* ─── STEP CARDS ─── */
+.steps-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+  gap:14px;
+}
+.step-card{
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;padding:16px 18px;
+  border-left:3px solid;
+  animation:fadein .4s ease both;
+}
+.step-card-num{font-size:.62rem;color:var(--muted);margin-bottom:6px;letter-spacing:1px;}
+.step-card-title{font-size:.9rem;font-weight:700;margin-bottom:6px;}
+.step-card-body{font-size:.78rem;color:var(--muted);line-height:1.65;}
+
+/* ─── COMPARE TABLE ─── */
+table{width:100%;border-collapse:collapse;font-size:.8rem;}
+th{background:var(--surface2);padding:10px 13px;text-align:left;
+   color:var(--muted);font-size:.67rem;text-transform:uppercase;
+   letter-spacing:1px;border:1px solid var(--border);}
+td{padding:10px 13px;border:1px solid var(--border);vertical-align:top;line-height:1.6;}
+tr:hover td{background:var(--surface2);}
+
+.chip{display:inline-block;padding:2px 7px;border-radius:12px;font-size:.68rem;font-weight:700;}
+.chip-green {background:var(--client-dim);color:var(--client);}
+.chip-yellow{background:var(--network-dim);color:var(--network);}
+.chip-blue  {background:var(--server-dim);color:var(--server);}
+.chip-pink  {background:var(--db-dim);color:var(--db);}
+.chip-purple{background:var(--react-dim);color:var(--react);}
+.chip-spring{background:var(--spring-dim);color:var(--spring);}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+/* ─── BIG VISUAL FLOW ─── */
+.visual-flow{
+  display:flex;flex-direction:column;gap:0;
+  border:1px solid var(--border);border-radius:12px;overflow:hidden;
+}
+
+.vf-zone{
+  padding:20px 24px;
+  border-bottom:1px solid var(--border);
+  position:relative;
+}
+.vf-zone:last-child{border-bottom:none;}
+
+.vf-zone-title{
+  font-size:.67rem;text-transform:uppercase;letter-spacing:2px;
+  font-weight:700;margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;
+}
+.vf-zone-dot{
+  width:8px;height:8px;border-radius:50%;display:inline-block;
+}
+
+.vf-steps{
+  display:flex;flex-wrap:wrap;gap:10px;
+  align-items:center;
+}
+.vf-step{
+  background:var(--surface3);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 14px;
+  font-size:.78rem;
+  display:flex;flex-direction:column;
+  gap:3px;
+  min-width:130px;
+  animation:fadein .4s ease both;
+}
+.vf-step-num{font-size:.6rem;color:var(--muted);}
+.vf-step-name{font-weight:700;}
+.vf-step-sub{font-size:.7rem;color:var(--muted);}
+
+.vf-arrow{
+  font-size:1.2rem;color:var(--network);
+  animation:pulse 2s infinite;
+  flex-shrink:0;
+}
+
+.zone-client  .vf-zone-title{color:var(--client);}
+.zone-client  .vf-step{border-left:2px solid var(--client);}
+.zone-network .vf-zone-title{color:var(--network);}
+.zone-network .vf-step{border-left:2px solid var(--network);}
+.zone-spring  .vf-zone-title{color:var(--spring);}
+.zone-spring  .vf-step{border-left:2px solid var(--spring);}
+.zone-db      .vf-zone-title{color:var(--db);}
+.zone-db      .vf-step{border-left:2px solid var(--db);}
+.zone-back    .vf-zone-title{color:var(--server);}
+.zone-back    .vf-step{border-left:2px solid var(--server);}
+
+.vf-zone.zone-client  {background:linear-gradient(90deg,#064e3b18 0%,transparent 100%);}
+.vf-zone.zone-network {background:linear-gradient(90deg,#78350f18 0%,transparent 100%);}
+.vf-zone.zone-spring  {background:linear-gradient(90deg,#14532d18 0%,transparent 100%);}
+.vf-zone.zone-db      {background:linear-gradient(90deg,#83184318 0%,transparent 100%);}
+.vf-zone.zone-back    {background:linear-gradient(90deg,#1e3a5f18 0%,transparent 100%);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔍 구글 검색 한 번의 <em>전체 흐름</em></h1>
+  <p>브라우저 입력 → 네트워크 → Spring 서버 → DB → 응답 → 렌더링 (HTML / React 비교)</p>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="go('tab-overview',this)">① 전체 흐름도</button>
+  <button class="tab" onclick="go('tab-client',this)">② 클라이언트 요청</button>
+  <button class="tab" onclick="go('tab-network',this)">③ 네트워크 & DNS</button>
+  <button class="tab" onclick="go('tab-spring',this)">④ Spring 서버 처리</button>
+  <button class="tab" onclick="go('tab-html-render',this)">⑤ HTML 렌더링 응답</button>
+  <button class="tab" onclick="go('tab-react-render',this)">⑥ React 렌더링 응답</button>
+  <button class="tab" onclick="go('tab-compare',this)">⑦ 비교 요약</button>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 1 — 전체 흐름도
+══════════════════════════════════ -->
+<div id="tab-overview" class="tab-content active">
+<div class="section">
+  <div class="section-title">구글 검색 한 번에 일어나는 일 — 전체 구조</div>
+  <div class="visual-flow">
+
+    <div class="vf-zone zone-client">
+      <div class="vf-zone-title">
+        <span class="vf-zone-dot" style="background:var(--client)"></span>
+        CLIENT (브라우저)
+      </div>
+      <div class="vf-steps">
+        <div class="vf-step" style="animation-delay:.0s">
+          <span class="vf-step-num">STEP 1</span>
+          <span class="vf-step-name">URL 입력</span>
+          <span class="vf-step-sub">google.com/search?q=...</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.08s">
+          <span class="vf-step-num">STEP 2</span>
+          <span class="vf-step-name">브라우저 캐시 확인</span>
+          <span class="vf-step-sub">있으면 바로 응답</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.16s">
+          <span class="vf-step-num">STEP 3</span>
+          <span class="vf-step-name">HTTP Request 생성</span>
+          <span class="vf-step-sub">GET /search?q=claude</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="vf-zone zone-network">
+      <div class="vf-zone-title">
+        <span class="vf-zone-dot" style="background:var(--network)"></span>
+        NETWORK (인터넷)
+      </div>
+      <div class="vf-steps">
+        <div class="vf-step" style="animation-delay:.22s">
+          <span class="vf-step-num">STEP 4</span>
+          <span class="vf-step-name">DNS Lookup</span>
+          <span class="vf-step-sub">google.com → IP 주소</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.30s">
+          <span class="vf-step-num">STEP 5</span>
+          <span class="vf-step-name">TCP 3-way Handshake</span>
+          <span class="vf-step-sub">SYN → SYN-ACK → ACK</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.38s">
+          <span class="vf-step-num">STEP 6</span>
+          <span class="vf-step-name">TLS/HTTPS 연결</span>
+          <span class="vf-step-sub">암호화 채널 수립</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.46s">
+          <span class="vf-step-num">STEP 7</span>
+          <span class="vf-step-name">Request 전송</span>
+          <span class="vf-step-sub">패킷으로 분할 전송</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="vf-zone zone-spring">
+      <div class="vf-zone-title">
+        <span class="vf-zone-dot" style="background:var(--spring)"></span>
+        SPRING SERVER (백엔드)
+      </div>
+      <div class="vf-steps">
+        <div class="vf-step" style="animation-delay:.52s">
+          <span class="vf-step-num">STEP 8</span>
+          <span class="vf-step-name">DispatcherServlet</span>
+          <span class="vf-step-sub">요청 진입점</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.58s">
+          <span class="vf-step-num">STEP 9</span>
+          <span class="vf-step-name">Controller</span>
+          <span class="vf-step-sub">@GetMapping("/search")</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.64s">
+          <span class="vf-step-num">STEP 10</span>
+          <span class="vf-step-name">Service</span>
+          <span class="vf-step-sub">비즈니스 로직</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.70s">
+          <span class="vf-step-num">STEP 11</span>
+          <span class="vf-step-name">Repository</span>
+          <span class="vf-step-sub">DB 쿼리</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="vf-zone zone-db">
+      <div class="vf-zone-title">
+        <span class="vf-zone-dot" style="background:var(--db)"></span>
+        DATABASE
+      </div>
+      <div class="vf-steps">
+        <div class="vf-step" style="animation-delay:.76s">
+          <span class="vf-step-num">STEP 12</span>
+          <span class="vf-step-name">SQL 실행</span>
+          <span class="vf-step-sub">SELECT * FROM ...</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.82s">
+          <span class="vf-step-num">STEP 13</span>
+          <span class="vf-step-name">결과 반환</span>
+          <span class="vf-step-sub">ResultSet → Entity</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="vf-zone zone-back">
+      <div class="vf-zone-title">
+        <span class="vf-zone-dot" style="background:var(--server)"></span>
+        응답 생성 → 클라이언트로 전송
+      </div>
+      <div class="vf-steps">
+        <div class="vf-step" style="animation-delay:.88s">
+          <span class="vf-step-num">STEP 14</span>
+          <span class="vf-step-name">응답 생성</span>
+          <span class="vf-step-sub">HTML 또는 JSON</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:.94s">
+          <span class="vf-step-num">STEP 15</span>
+          <span class="vf-step-name">HTTP Response</span>
+          <span class="vf-step-sub">200 OK + Body</span>
+        </div>
+        <div class="vf-arrow">→</div>
+        <div class="vf-step" style="animation-delay:1s">
+          <span class="vf-step-num">STEP 16</span>
+          <span class="vf-step-name">브라우저 렌더링</span>
+          <span class="vf-step-sub">DOM → 화면 표시</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 2 — 클라이언트 요청
+══════════════════════════════════ -->
+<div id="tab-client" class="tab-content">
+<div class="section">
+  <div class="section-title">브라우저에서 요청이 만들어지는 과정</div>
+  <div class="code">
+    <span class="lang">HTTP REQUEST</span>
+<pre><span class="cm">/* 사용자가 주소창에 입력 */</span>
+https://www.google.com/search?q=claude+AI
+
+<span class="cm">/* 브라우저가 자동으로 만드는 HTTP 요청 패킷 */</span>
+<span class="ck">GET</span> /search?q=claude+AI <span class="ck">HTTP/1.1</span>
+<span class="ca">Host:</span>            <span class="cv">www.google.com</span>
+<span class="ca">User-Agent:</span>      <span class="cv">Mozilla/5.0 (Chrome/121)</span>
+<span class="ca">Accept:</span>          <span class="cv">text/html,application/json</span>
+<span class="ca">Accept-Language:</span> <span class="cv">ko-KR,ko;q=0.9</span>
+<span class="ca">Cookie:</span>          <span class="cv">session=abc123; pref=...</span>
+<span class="ca">Connection:</span>      <span class="cv">keep-alive</span>
+
+<span class="cm">/* React SPA라면 — 추가로 JSON API 요청도 합니다 */</span>
+<span class="ck">GET</span> /api/search?q=claude+AI <span class="ck">HTTP/1.1</span>
+<span class="ca">Accept:</span>          <span class="cv">application/json</span>
+<span class="ca">Authorization:</span>   <span class="cv">Bearer eyJhbGciOiJ...</span></pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">브라우저 캐시 확인 순서</div>
+  <div class="pipeline">
+    <div class="pipe" style="border-color:var(--client)">
+      <div class="pipe-dot" style="background:var(--client);color:#000">1</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--client)">Memory Cache 확인</div>
+        <div class="pipe-desc">현재 탭의 메모리에 있는 캐시. 가장 빠름. 탭 닫으면 사라짐.</div>
+        <div class="pill" style="background:var(--client-dim);color:var(--client)">~0ms</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--network)">
+      <div class="pipe-dot" style="background:var(--network);color:#000">2</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--network)">Disk Cache 확인</div>
+        <div class="pipe-desc">하드디스크에 저장된 캐시 (이전 방문 기록). 재시작해도 남아있음.</div>
+        <div class="pill" style="background:var(--network-dim);color:var(--network)">~수ms</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--server);border-left-style:dashed">
+      <div class="pipe-dot" style="background:var(--server);color:#000">3</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--server)">캐시 없음 → 실제 네트워크 요청</div>
+        <div class="pipe-desc">처음 방문이거나 캐시가 만료되면, DNS → TCP → HTTP 요청 전체 수행</div>
+        <div class="pill" style="background:var(--server-dim);color:var(--server)">수십~수백ms</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 3 — 네트워크 & DNS
+══════════════════════════════════ -->
+<div id="tab-network" class="tab-content">
+<div class="section">
+  <div class="section-title">DNS Lookup — 도메인을 IP로 바꾸는 과정</div>
+  <div class="code">
+    <span class="lang">DNS</span>
+<pre><span class="cm">/* 브라우저는 www.google.com의 IP를 모름 → DNS에게 물어봄 */</span>
+
+브라우저 → 로컬 hosts 파일 확인
+       → 로컬 DNS 캐시 확인
+       → 공유기(로컬 DNS 서버) 확인
+       → ISP DNS 서버 확인
+       → 루트 DNS 서버(.com 담당)
+       → 구글 DNS 서버
+       ← 142.250.196.100 반환  ✅
+
+<span class="cm">/* 최초 1회만 수행, 이후 TTL 동안 캐시에 저장 */</span>
+<span class="ca">google.com</span> → <span class="cv">142.250.196.100</span>  (TTL: 300초)</pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">TCP 3-way Handshake + HTTPS 수립</div>
+  <div class="code">
+    <span class="lang">TCP / TLS</span>
+<pre><span class="cm">/* TCP 연결 수립 (신뢰성 있는 통신 채널 만들기) */</span>
+
+브라우저  →  <span class="ck">SYN</span>          →  서버
+브라우저  ←  <span class="ck">SYN-ACK</span>     ←  서버
+브라우저  →  <span class="ck">ACK</span>          →  서버
+<span class="cm">                    ↑ 여기까지 TCP 연결 완료</span>
+
+<span class="cm">/* HTTPS = TLS 암호화 추가 */</span>
+브라우저  →  ClientHello (지원 암호화 목록)
+서버      ←  ServerHello + 인증서(SSL Certificate)
+브라우저     인증서 검증 (CA 신뢰 확인)
+브라우저  →  대칭키 교환 (암호화)
+<span class="cm">                    ↑ 이제 모든 통신이 암호화됨 🔒</span>
+
+<span class="cm">/* 총 소요: 약 50~200ms (지역마다 다름) */</span></pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">실제 요청 전송 과정</div>
+  <div class="pipeline">
+    <div class="pipe" style="border-color:var(--network)">
+      <div class="pipe-dot" style="background:var(--network);color:#000">→</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--network)">Request 패킷 분할 전송</div>
+        <div class="pipe-desc">HTTP 요청이 여러 개의 TCP 패킷으로 분할되어 인터넷을 통해 전송됩니다.<br>각 패킷은 서로 다른 경로로 이동할 수도 있습니다.</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--spring)">
+      <div class="pipe-dot" style="background:var(--spring);color:#000">↓</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--spring)">서버의 Load Balancer 도달</div>
+        <div class="pipe-desc">실제 대형 서비스는 수천 대의 서버가 있고, Load Balancer가 요청을 분산합니다.<br>구글 기준: 전 세계 데이터센터 중 가장 가까운 곳으로 라우팅</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-left:none">
+      <div class="pipe-dot" style="background:var(--server);color:#000">↑</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--server)">Spring 서버 수신</div>
+        <div class="pipe-desc">DispatcherServlet이 요청을 받아서 처리 시작</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 4 — Spring 서버
+══════════════════════════════════ -->
+<div id="tab-spring" class="tab-content">
+<div class="section">
+  <div class="section-title">Spring MVC 내부 처리 흐름</div>
+  <div class="code">
+    <span class="lang">Spring Java</span>
+<pre><span class="cm">// ① DispatcherServlet이 모든 요청을 받는 진입점</span>
+<span class="cm">// GET /search?q=claude → 여기로 들어옴</span>
+
+<span class="cm">// ② Controller — URL 매핑 & 파라미터 추출</span>
+<span class="ca">@RestController</span>
+<span class="ck">public class</span> <span class="cf">SearchController</span> {
+
+    <span class="ca">@Autowired</span>
+    <span class="ck">private</span> SearchService searchService;
+
+    <span class="ca">@GetMapping</span>(<span class="cst">"/search"</span>)
+    <span class="ck">public</span> ResponseEntity&lt;SearchResponse&gt; <span class="cf">search</span>(
+            <span class="ca">@RequestParam</span> String q) {
+
+        <span class="cm">// ③ Service 호출</span>
+        SearchResponse result = searchService.<span class="cf">search</span>(q);
+        <span class="ck">return</span> ResponseEntity.<span class="cf">ok</span>(result);
+    }
+}</pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Service + Repository (DB 접근)</div>
+  <div class="code">
+    <span class="lang">Spring Java</span>
+<pre><span class="cm">// ③ Service — 비즈니스 로직 처리</span>
+<span class="ca">@Service</span>
+<span class="ck">public class</span> <span class="cf">SearchService</span> {
+
+    <span class="ca">@Autowired</span>
+    <span class="ck">private</span> SearchRepository repo;
+
+    <span class="ck">public</span> SearchResponse <span class="cf">search</span>(String query) {
+        <span class="cm">// 검색어 정제</span>
+        String cleaned = query.<span class="cf">trim</span>().<span class="cf">toLowerCase</span>();
+
+        <span class="cm">// ④ Repository에 DB 조회 요청</span>
+        List&lt;SearchResult&gt; items = repo.<span class="cf">findByKeyword</span>(cleaned);
+
+        <span class="cm">// 결과 가공 & 반환</span>
+        <span class="ck">return new</span> <span class="cf">SearchResponse</span>(items, items.<span class="cf">size</span>());
+    }
+}
+
+<span class="cm">// ④ Repository — DB 쿼리 실행 (JPA)</span>
+<span class="ca">@Repository</span>
+<span class="ck">public interface</span> <span class="cf">SearchRepository</span>
+        <span class="ck">extends</span> JpaRepository&lt;SearchResult, Long&gt; {
+
+    <span class="cm">// 실제 실행 SQL:
+    // SELECT * FROM search_results
+    // WHERE keyword LIKE '%claude%'
+    // ORDER BY rank DESC LIMIT 10</span>
+    List&lt;SearchResult&gt; <span class="cf">findByKeyword</span>(String keyword);
+}</pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Spring 내부 처리 파이프라인</div>
+  <div class="pipeline">
+    <div class="pipe" style="border-color:var(--spring)">
+      <div class="pipe-dot" style="background:var(--spring);color:#000">1</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--spring)">DispatcherServlet — 요청 수신</div>
+        <div class="pipe-desc">모든 HTTP 요청의 진입점. 앞단에서 Filter Chain을 통과합니다.<br>(인증/인가, CORS 처리, 로깅 등이 Filter에서 수행)</div>
+        <div class="pill" style="background:var(--spring-dim);color:var(--spring)">Filter → DispatcherServlet</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--spring)">
+      <div class="pipe-dot" style="background:var(--spring);color:#000">2</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--spring)">HandlerMapping — 컨트롤러 찾기</div>
+        <div class="pipe-desc">/search → SearchController.search() 메서드를 찾아줍니다.<br>@GetMapping, @PostMapping 등의 어노테이션을 보고 매핑합니다.</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--spring)">
+      <div class="pipe-dot" style="background:var(--spring);color:#000">3</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--spring)">Controller → Service → Repository</div>
+        <div class="pipe-desc">MVC 레이어 순서대로 호출. 각 레이어는 역할이 분리되어 있습니다.<br>Controller: 입출력 / Service: 비즈니스 로직 / Repository: DB 접근</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--db)">
+      <div class="pipe-dot" style="background:var(--db);color:#000">4</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--db)">DB 쿼리 실행 & 결과 수신</div>
+        <div class="pipe-desc">JPA가 SQL을 생성하고 실행합니다. Connection Pool에서 커넥션을 꺼내 쿼리를 날리고, ResultSet을 Java Entity로 변환합니다.</div>
+        <div class="pill" style="background:var(--db-dim);color:var(--db)">HikariCP (Connection Pool)</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--server);border-left-style:none">
+      <div class="pipe-dot" style="background:var(--server);color:#000">5</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--server)">응답 생성 → 직렬화 → 전송</div>
+        <div class="pipe-desc">Java 객체 → JSON (@RestController라면 Jackson이 자동 변환)<br>또는 HTML (Thymeleaf/JSP 같은 템플릿 엔진이 HTML 생성)</div>
+        <div class="pill" style="background:var(--server-dim);color:var(--server)">Jackson (Java → JSON 변환)</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 5 — HTML 렌더링 응답
+══════════════════════════════════ -->
+<div id="tab-html-render" class="tab-content">
+<div class="section">
+  <div class="section-title">SSR (Server-Side Rendering) — 서버가 완성된 HTML을 줌</div>
+  <div class="code">
+    <span class="lang">Spring + Thymeleaf → HTML</span>
+<pre><span class="cm">// Spring이 Thymeleaf 템플릿으로 완성된 HTML을 만들어서 보냄</span>
+
+<span class="cm">/* ① 서버가 보내는 완성된 HTML 응답 */</span>
+HTTP/1.1 <span class="cv">200 OK</span>
+Content-Type: text/html
+
+<span class="ct">&lt;!DOCTYPE html&gt;</span>
+<span class="ct">&lt;html&gt;</span>
+  <span class="ct">&lt;head&gt;</span>
+    <span class="ct">&lt;title&gt;</span>검색결과: claude<span class="ct">&lt;/title&gt;</span>
+    <span class="ct">&lt;style&gt;</span>
+      <span class="cs">.result</span> { <span class="cp">padding</span>: <span class="cn">16px</span>; <span class="cp">border-bottom</span>: <span class="cn">1px</span> solid <span class="cv">#eee</span>; }
+      <span class="cs">.title</span>  { <span class="cp">color</span>: <span class="cv">#1a0dab</span>; <span class="cp">font-size</span>: <span class="cn">1.1rem</span>; }
+      <span class="cs">.url</span>    { <span class="cp">color</span>: <span class="cv">#006621</span>; <span class="cp">font-size</span>: <span class="cn">.85rem</span>; }
+    <span class="ct">&lt;/style&gt;</span>
+  <span class="ct">&lt;/head&gt;</span>
+  <span class="ct">&lt;body&gt;</span>
+    <span class="ct">&lt;div</span> <span class="ca">class</span>=<span class="cst">"result"</span><span class="ct">&gt;</span>
+      <span class="ct">&lt;a</span> <span class="ca">class</span>=<span class="cst">"title"</span><span class="ct">&gt;</span>Claude AI - Anthropic<span class="ct">&lt;/a&gt;</span>
+      <span class="ct">&lt;p</span> <span class="ca">class</span>=<span class="cst">"url"</span><span class="ct">&gt;</span>https://claude.ai<span class="ct">&lt;/p&gt;</span>
+    <span class="ct">&lt;/div&gt;</span>
+    <span class="cm">&lt;!-- DB에서 가져온 결과가 이미 HTML 안에 포함 --&gt;</span>
+  <span class="ct">&lt;/body&gt;</span>
+<span class="ct">&lt;/html&gt;</span></pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">HTML SSR 렌더링 파이프라인</div>
+  <div class="pipeline">
+    <div class="pipe" style="border-color:var(--network)">
+      <div class="pipe-dot" style="background:var(--network);color:#000">①</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--network)">완성된 HTML 수신</div>
+        <div class="pipe-desc">서버가 DB 결과까지 포함된 완성 HTML을 브라우저로 전송합니다.</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--client)">
+      <div class="pipe-dot" style="background:var(--client);color:#000">②</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--client)">HTML 파싱 → DOM Tree</div>
+        <div class="pipe-desc">브라우저가 HTML을 위에서 아래로 읽으며 DOM 트리를 만듭니다.</div>
+        <div class="pill" style="background:var(--client-dim);color:var(--client)">&lt;div.result&gt; → Node 생성</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--client)">
+      <div class="pipe-dot" style="background:var(--client);color:#000">③</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--client)">CSS 파싱 → CSSOM Tree</div>
+        <div class="pipe-desc">병렬로 CSS를 파싱해서 스타일 규칙 트리 생성.</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--client)">
+      <div class="pipe-dot" style="background:var(--client);color:#000">④</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--client)">Render Tree → Layout → Paint</div>
+        <div class="pipe-desc">DOM + CSSOM 합체 → 위치/크기 계산 → 픽셀 렌더링 → 화면 표시</div>
+        <div class="pill" style="background:var(--client-dim);color:var(--client)">✅ 화면 표시 (FCP 달성)</div>
+      </div>
+    </div>
+    <div class="pipe" style="border:none">
+      <div class="pipe-dot" style="background:var(--muted);color:#000">⑤</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--muted)">JS 실행 (선택적)</div>
+        <div class="pipe-desc">클릭 이벤트 등 JS가 DOM을 직접 조작할 때만 추가 업데이트 발생.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">SSR의 특징</div>
+  <div class="steps-grid">
+    <div class="step-card" style="border-color:var(--client)">
+      <div class="step-card-num">장점</div>
+      <div class="step-card-title" style="color:var(--client)">첫 화면이 빠름 (FCP)</div>
+      <div class="step-card-body">서버가 완성된 HTML을 주기 때문에 브라우저가 받자마자 바로 화면에 그릴 수 있습니다.</div>
+    </div>
+    <div class="step-card" style="border-color:var(--client)">
+      <div class="step-card-num">장점</div>
+      <div class="step-card-title" style="color:var(--client)">SEO에 유리</div>
+      <div class="step-card-body">구글 검색봇이 HTML을 바로 읽을 수 있습니다. JS 실행 없이도 콘텐츠가 보입니다.</div>
+    </div>
+    <div class="step-card" style="border-color:var(--muted)">
+      <div class="step-card-num">단점</div>
+      <div class="step-card-title" style="color:var(--muted)">페이지 이동 시 전체 새로고침</div>
+      <div class="step-card-body">다음 페이지로 이동할 때마다 서버에 새 HTML을 요청해야 합니다.</div>
+    </div>
+    <div class="step-card" style="border-color:var(--muted)">
+      <div class="step-card-num">단점</div>
+      <div class="step-card-title" style="color:var(--muted)">서버 부하</div>
+      <div class="step-card-body">모든 요청마다 서버가 HTML을 렌더링해야 하므로 트래픽이 많으면 서버가 힘듭니다.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 6 — React 렌더링 응답
+══════════════════════════════════ -->
+<div id="tab-react-render" class="tab-content">
+<div class="section">
+  <div class="section-title">CSR (Client-Side Rendering) — JSON만 받아서 React가 화면 그림</div>
+  <div class="code">
+    <span class="lang">Spring REST → JSON → React</span>
+<pre><span class="cm">// Spring이 JSON만 응답 (HTML 아님!)</span>
+HTTP/1.1 <span class="cv">200 OK</span>
+Content-Type: application/json
+
+{
+  <span class="ca">"total"</span>: <span class="cn">3</span>,
+  <span class="ca">"results"</span>: [
+    {
+      <span class="ca">"title"</span>: <span class="cst">"Claude AI - Anthropic"</span>,
+      <span class="ca">"url"</span>:   <span class="cst">"https://claude.ai"</span>,
+      <span class="ca">"desc"</span>:  <span class="cst">"Claude is an AI assistant..."</span>
+    }
+  ]
+}
+
+<span class="cm">// React 컴포넌트가 이 JSON을 받아서 화면을 그림</span>
+<span class="ck">function</span> <span class="cf">SearchPage</span>() {
+  <span class="ck">const</span> [results, setResults] = <span class="cf">useState</span>([]);
+
+  <span class="cf">useEffect</span>(<span class="ck">async</span> () => {
+    <span class="cm">// API 호출 → JSON 수신</span>
+    <span class="ck">const</span> res = <span class="ck">await</span> <span class="cf">fetch</span>(<span class="cst">'/api/search?q=claude'</span>);
+    <span class="ck">const</span> data = <span class="ck">await</span> res.<span class="cf">json</span>();
+
+    <span class="cm">// State에 저장 → 자동으로 리렌더링!</span>
+    <span class="cf">setResults</span>(data.results);
+  }, []);
+
+  <span class="ck">return</span> (
+    <span class="ct">&lt;div&gt;</span>
+      {results.<span class="cf">map</span>(r => (
+        <span class="ct">&lt;ResultCard</span> <span class="ca">key</span>={r.url} <span class="ca">data</span>={r} <span class="ct">/&gt;</span>
+      ))}
+    <span class="ct">&lt;/div&gt;</span>
+  );
+}</pre>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">React CSR 전체 흐름</div>
+  <div class="pipeline">
+    <div class="pipe" style="border-color:var(--react)">
+      <div class="pipe-dot" style="background:var(--react);color:#000">①</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--react)">최초: 빈 HTML + JS 번들 수신</div>
+        <div class="pipe-desc">처음엔 내용 없는 뼈대 HTML과 React JS 파일(번들)을 다운로드합니다.</div>
+        <div class="pill" style="background:var(--react-dim);color:var(--react)">&lt;div id="root"&gt;&lt;/div&gt; + app.bundle.js</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--react)">
+      <div class="pipe-dot" style="background:var(--react);color:#000">②</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--react)">React 앱 부팅 (Hydration)</div>
+        <div class="pipe-desc">JS가 실행되어 React 컴포넌트 트리가 Virtual DOM으로 초기화됩니다.</div>
+        <div class="pill" style="background:var(--react-dim);color:var(--react)">ReactDOM.createRoot(root).render(&lt;App/&gt;)</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--network)">
+      <div class="pipe-dot" style="background:var(--network);color:#000">③</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--network)">API 호출 → Spring에서 JSON 수신</div>
+        <div class="pipe-desc">useEffect에서 fetch()로 Spring 서버에 JSON 데이터를 요청합니다.<br>이 동안 화면엔 로딩 스피너가 표시될 수 있습니다.</div>
+        <div class="pill" style="background:var(--network-dim);color:var(--network)">GET /api/search?q=claude → { results: [...] }</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--react)">
+      <div class="pipe-dot" style="background:var(--react);color:#000">④</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--react)">setResults() → 리렌더링</div>
+        <div class="pipe-desc">JSON을 State에 저장하면 React가 자동으로 리렌더링 트리거합니다.</div>
+      </div>
+    </div>
+    <div class="pipe" style="border-color:var(--react)">
+      <div class="pipe-dot" style="background:var(--react);color:#000">⑤</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--react)">Virtual DOM Diffing</div>
+        <div class="pipe-desc">이전(빈 배열)과 새(결과 배열) Virtual DOM을 비교 → 추가할 노드 파악</div>
+      </div>
+    </div>
+    <div class="pipe" style="border:none">
+      <div class="pipe-dot" style="background:var(--client);color:#000">⑥</div>
+      <div class="pipe-body">
+        <div class="pipe-name" style="color:var(--client)">실제 DOM 업데이트 → 화면 표시</div>
+        <div class="pipe-desc">변경된 부분만 실제 DOM에 반영 → 브라우저가 Repaint → ✅ 결과 화면</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">CSR의 특징</div>
+  <div class="steps-grid">
+    <div class="step-card" style="border-color:var(--react)">
+      <div class="step-card-num">장점</div>
+      <div class="step-card-title" style="color:var(--react)">페이지 이동이 빠름 (SPA)</div>
+      <div class="step-card-body">이미 React 앱이 로드되어 있으므로, 이후 페이지 이동은 JSON만 받아서 화면만 바꿉니다. 새로고침 없음!</div>
+    </div>
+    <div class="step-card" style="border-color:var(--react)">
+      <div class="step-card-num">장점</div>
+      <div class="step-card-title" style="color:var(--react)">서버 부하 적음</div>
+      <div class="step-card-body">서버는 JSON 데이터만 주면 됩니다. HTML 렌더링 부담이 없습니다.</div>
+    </div>
+    <div class="step-card" style="border-color:var(--muted)">
+      <div class="step-card-num">단점</div>
+      <div class="step-card-title" style="color:var(--muted)">첫 화면이 느림 (TTI)</div>
+      <div class="step-card-body">JS 번들 다운로드 → 실행 → API 호출 까지 완료해야 화면이 보임. 초기 로딩이 느립니다.</div>
+    </div>
+    <div class="step-card" style="border-color:var(--muted)">
+      <div class="step-card-num">단점</div>
+      <div class="step-card-title" style="color:var(--muted)">SEO 불리</div>
+      <div class="step-card-body">처음에 빈 HTML만 있어서 검색 봇이 내용을 못 읽을 수 있습니다. (Next.js SSR로 해결 가능)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     TAB 7 — 비교 요약
+══════════════════════════════════ -->
+<div id="tab-compare" class="tab-content">
+<div class="section">
+  <div class="section-title">SSR(HTML) vs CSR(React) 전체 비교</div>
+  <table>
+    <thead>
+      <tr><th>단계</th><th>SSR (Spring + HTML)</th><th>CSR (Spring API + React)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>서버 응답</strong></td>
+        <td>완성된 HTML (데이터 포함)</td>
+        <td>빈 HTML + JS 번들 → 이후 JSON</td>
+      </tr>
+      <tr>
+        <td><strong>첫 화면</strong></td>
+        <td><span class="chip chip-green">빠름</span> HTML 받으면 바로 렌더링</td>
+        <td><span class="chip chip-yellow">느림</span> JS 실행 + API 호출 필요</td>
+      </tr>
+      <tr>
+        <td><strong>페이지 이동</strong></td>
+        <td><span class="chip chip-yellow">느림</span> 매번 서버에 새 HTML 요청</td>
+        <td><span class="chip chip-green">빠름</span> JSON만 받아 화면 교체 (SPA)</td>
+      </tr>
+      <tr>
+        <td><strong>SEO</strong></td>
+        <td><span class="chip chip-green">유리</span> 검색봇이 HTML 바로 읽음</td>
+        <td><span class="chip chip-yellow">불리</span> JS 실행 전엔 빈 화면</td>
+      </tr>
+      <tr>
+        <td><strong>서버 부하</strong></td>
+        <td><span class="chip chip-yellow">높음</span> HTML 렌더링 매번 수행</td>
+        <td><span class="chip chip-green">낮음</span> JSON만 응답</td>
+      </tr>
+      <tr>
+        <td><strong>Spring 역할</strong></td>
+        <td>Thymeleaf로 HTML 생성 후 반환</td>
+        <td>@RestController로 JSON만 반환</td>
+      </tr>
+      <tr>
+        <td><strong>렌더링 위치</strong></td>
+        <td><span class="chip chip-spring">서버</span> 에서 HTML 완성</td>
+        <td><span class="chip chip-purple">브라우저</span> 에서 React가 완성</td>
+      </tr>
+      <tr>
+        <td><strong>대표 사례</strong></td>
+        <td>네이버 뉴스, 쇼핑몰 상품 페이지</td>
+        <td>Gmail, Notion, 관리자 대시보드</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <div class="section-title">전체 흐름 용어 정리</div>
+  <table>
+    <thead><tr><th>용어</th><th>뜻</th><th>어느 단계</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip chip-yellow">DNS Lookup</span></td><td>도메인 → IP 주소 변환</td><td>네트워크</td></tr>
+      <tr><td><span class="chip chip-yellow">TCP Handshake</span></td><td>신뢰성 있는 연결 수립 (3단계)</td><td>네트워크</td></tr>
+      <tr><td><span class="chip chip-yellow">TLS</span></td><td>HTTPS 암호화 채널 수립</td><td>네트워크</td></tr>
+      <tr><td><span class="chip chip-spring">DispatcherServlet</span></td><td>Spring 요청 진입점 (프론트 컨트롤러)</td><td>Spring</td></tr>
+      <tr><td><span class="chip chip-spring">JPA / Repository</span></td><td>Java 객체와 DB를 매핑하는 ORM</td><td>Spring</td></tr>
+      <tr><td><span class="chip chip-spring">Jackson</span></td><td>Java 객체 ↔ JSON 변환 라이브러리</td><td>Spring</td></tr>
+      <tr><td><span class="chip chip-green">SSR</span></td><td>서버가 완성된 HTML을 만들어서 전송</td><td>렌더링</td></tr>
+      <tr><td><span class="chip chip-purple">CSR</span></td><td>브라우저(React)가 JSON으로 화면을 그림</td><td>렌더링</td></tr>
+      <tr><td><span class="chip chip-purple">Virtual DOM</span></td><td>React가 메모리에 만드는 가상 DOM</td><td>React</td></tr>
+      <tr><td><span class="chip chip-purple">Diffing</span></td><td>이전/새 Virtual DOM을 비교하는 과정</td><td>React</td></tr>
+      <tr><td><span class="chip chip-green">FCP</span></td><td>First Contentful Paint — 첫 화면 표시 시간</td><td>성능 지표</td></tr>
+      <tr><td><span class="chip chip-green">TTI</span></td><td>Time To Interactive — 인터랙션 가능해지는 시간</td><td>성능 지표</td></tr>
+    </tbody>
+  </table>
+</div>
+</div>
+
+
+<script>
+  function go(id, btn) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+  }
+</script>
+</body>
+</html>
