@@ -1,7 +1,5 @@
+import { Editor } from "./components/editor/Editor";
+
 export default function App() {
-  return (
-    <div>
-      <h1>Notion App</h1>
-    </div>
-  );
+  return <Editor />;
 }
