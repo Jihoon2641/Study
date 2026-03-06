@@ -1,131 +1,146 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { TitleInput } from "./TitleInput";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { SaveStatus } from "./Savestatus";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useDebounce } from "../../hooks/useDebounce";
 import type { Page } from "../../types/Index";
 
-// 새 페이지 초기값을 만드는 헬퍼 함수
-function createEmptyPage(): Page {
-    const now = Date.now();
-    return {
-        id: crypto.randomUUID(),
-        title: "",
-        content: "",
-        createdAt: now,
-        updatedAt: now,
-    };
+type EditorProps = {
+    page: Page;
+    onUpdate: (updates: { title?: string; content?: string; emoji?: string; }) => void;
 }
 
+const EMOJIS = ["📄", "📝", "📌", "💡", "🗒️", "📋", "🔖", "✏️", "🌟", "🎯"];
+
 /**
- * useState -> 저장 상태(saveStatus) 관리
- * useRef -> 본문 textarea에 포커스 이동
- * useEffect -> 디바운스 저장 / 저장 상태 표시 / 탭 제목 업데이트
- * useLocalStorage (Custom Hook) -> 새로고침해도 내용 유지
- * useDebounce (Custom Hook) -> 타이핑 멈훈 후에만 저장 트리거
+ * Editor
+ *
+ * Week 1과 다른 점:
+ * - 이제 자체적으로 상태를 들고 있지 않습니다.
+ * - 상위(App)에서 현재 페이지(page)를 받아서 표시하고,
+ *   변경이 생기면 onUpdate로 알립니다.
+ * - 페이지가 바뀔 때(page.id 변경) 에디터를 초기화합니다.
  */
-export function Editor() {
-    // useLocalStorage: 페이지 데이터를 브라우저에 영구 저장
-    // 새로고침해도 작성한 내용 유지
-    const [page, setPage] = useLocalStorage<Page>("notion-page", createEmptyPage());
 
-    // useState: 저장 상태는 UI 전용 -> localStorage 불필요
-    const [saveStauts, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-
-    // useRef: 본문 영역 DOM에 직접 접근 (포커스 이동용)
+export function Editor({ page, onUpdate }: EditorProps) {
+    const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const titleRef = useRef<HTMLInputElement>(null);
     const contentRef = useRef<HTMLTextAreaElement>(null);
 
-    // useDebounce: title/content가 바뀌고 800ms 후에만 debouncedPage가 업데이트
-    // 타이핑 중 저장 트리거 안됨.
+    // 디바운스 : 타이핑 멈춘 후 800ms에만 저장 트리거
     const debouncedPage = useDebounce(page, 800);
 
-    // 핸들러
-    // 제목 변경 : page 객체의 title만 업데이트
-    const handleTitleChange = useCallback((title: string) => {
-        setPage((prev) => ({ ...prev, title, updatedAt: Date.now() }));
-    }, [setPage]);
-
-    // 본문 변경
-    const handleContentChange = useCallback((content: string) => {
-        setPage((prev) => ({ ...prev, content, updatedAt: Date.now() }));
-    }, [setPage]);
-
-    // 본문 영역으로 포커스 이동
-    const handleTitleEnter = useCallback(() => {
-        contentRef.current?.focus();
-    }, []);
-
-    // useEffect
-    // debouncedPage가 바뀔 때 저장 중 -> 저장됨 표시
-    // debouncedPage는 타이핑 멈춘 후에만 바뀌므로 타이핑 중에는 이 effect가 실행되지 않음
+    // ─── 페이지가 바뀌면 에디터 초기화 ─────────────────────
+    // page.id가 바뀌었다 = 사용자가 다른 페이지를 선택했다
+    // 이 경우 저장 상태를 리셋하고 제목으로 포커스 이동
     useEffect(() => {
-        // 앱 첫 로드 시엔 저장 표시 안함
-        if (!page.title && !page.content) return;
+        setSaveStatus("idle");
+        titleRef.current?.focus();
+    }, [page.id]);
 
-        setSaveStatus("saving");
-
-        const timer = setTimeout(() => {
-            setSaveStatus("saved");
-        }, 400);
-
-        return () => clearTimeout(timer);
-    }, [debouncedPage]);
-
-    // 브라우저 탭 제목을 페이지 제목과 동기화
+    // 저장 상태 표시
     useEffect(() => {
-        document.title = page.title || "제목 없음 - Notion";
+        document.title = page.title ? `${page.title} — Notion` : "제목 없음 — Notion";
     }, [page.title]);
 
-    // 렌더링
+    // 핸들러
+    const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        onUpdate({ title: e.target.value });
+    }, [onUpdate]);
+
+
+    const handleContentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        onUpdate({ content: e.target.value });
+        // textarea 높이 자동 조절
+        e.target.style.height = "auto";
+        e.target.style.height = `${e.target.scrollHeight}px`;
+    }, [onUpdate]);
+
+    const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            contentRef.current?.focus();
+        }
+    }, []);
+
+    const handleEmojiSelect = useCallback((emoji: string) => {
+        onUpdate({ emoji });
+        setShowEmojiPicker(false);
+    }, [onUpdate]);
 
     const wordCount = page.content.trim()
         ? page.content.trim().split(/\s+/).length : 0;
 
     return (
-        <div className="min-h-scrern bg-white">
+        <div className="flex-1 flex flex-col min-h-screen bg-white overflow-y-auto">
+
             {/* 상단 툴바 */}
-            <div className="fixed top-0 left-0 right-0 h-12 flex items-center justify-between px-6 bg-white/80 backdrop-blur-sm border-b border-gray-100 z-10">
-                <span className="text-sm text-gray-400 truncate max-w-xs">
-                    {page.title || "제목 없음"}
+            <div className="sticky top-0 flex items-center justify-between px-6 h-12 bg-white/80 backdrop-blur-sm border-b border-gray-100 z-10">
+                <span className="text-sm text-gray-400 truncate">
+                    {page.emoji} {page.title || "제목 없음"}
                 </span>
-                <SaveStatus status={saveStauts} updatedAt={page.updatedAt} />
+                <SaveStatus status={saveStatus} updatedAt={page.updatedAt} />
             </div>
 
             {/* 에디터 본문 */}
-            <div className="max-w-3xl mx-auto px-16 pt-28 pb-40">
-                {/* 이모지 영역 (Notion 스타일) */}
-                <div className="text-6xl mb-6 select-none">📄</div>
+            <div className="max-w-3xl mx-auto w-full px-16 pt-16 pb-40">
+
+                {/* 이모지 선택 */}
+                <div className="relative mb-4">
+                    <button
+                        onClick={() => setShowEmojiPicker((v) => !v)}
+                        className="text-5xl hover:opacity-70 transition-opacity"
+                        title="이모지 변경"
+                    >
+                        {page.emoji}
+                    </button>
+
+                    {showEmojiPicker && (
+                        <div className="absolute top-14 left-0 bg-white border border-gray-200 rounded-xl shadow-lg p-3 grid grid-cols-5 gap-1 z-20">
+                            {EMOJIS.map((emoji) => (
+                                <button
+                                    key={emoji}
+                                    onClick={() => handleEmojiSelect(emoji)}
+                                    className="text-2xl p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
                 {/* 제목 */}
-                <TitleInput
+                <input
+                    ref={titleRef}
+                    type="text"
                     value={page.title}
                     onChange={handleTitleChange}
-                    onEnter={handleTitleEnter}
+                    onKeyDown={handleTitleKeyDown}
+                    placeholder="제목 없음"
+                    className="
+            w-full bg-transparent border-none outline-none
+            text-[40px] font-bold leading-tight tracking-tight
+            text-gray-900 placeholder:text-gray-300
+          "
                 />
 
-                {/* 구분선 */}
                 <div className="mt-4 mb-6 border-t border-gray-100" />
 
                 {/* 본문 */}
                 <textarea
                     ref={contentRef}
                     value={page.content}
-                    onChange={(e) => {
-                        handleContentChange(e.target.value);
-                        // 높이 자동 조절
-                        e.target.style.height = "auto";
-                        e.target.style.height = `${e.target.scrollHeight}px`;
-                    }}
+                    onChange={handleContentChange}
                     placeholder="내용을 입력하세요..."
                     rows={1}
                     className="
-                        w-full bg-transparent border-none outline-none resize-none
-                        text-[16px] leading-8 text-gray-800
-                        placeholder:text-gray-300 min-h-[60vh]
-                    "
+            w-full bg-transparent border-none outline-none resize-none
+            text-[16px] leading-8 text-gray-800
+            placeholder:text-gray-300 min-h-[60vh]
+          "
                 />
 
-                {/* 하단 메타 정보 */}
+                {/* 하단 메타 */}
                 <div className="mt-8 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
                     <span>
                         마지막 수정:{" "}
@@ -138,6 +153,5 @@ export function Editor() {
                 </div>
             </div>
         </div>
-    )
-
+    );
 }
