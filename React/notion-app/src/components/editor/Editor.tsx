@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { TitleInput } from "./TitleInput";
-import { SaveStatus } from "./Svaestatus";
+import { SaveStatus } from "./Savestatus";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useDebounce } from "../../hooks/useDebounce";
 import type { Page } from "../../types/Index";
