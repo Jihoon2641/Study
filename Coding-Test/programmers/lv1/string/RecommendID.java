@@ -1,4 +1,4 @@
-package programmers.lv1;
+package programmers.lv1.string;
 
 public class RecommendID {
 

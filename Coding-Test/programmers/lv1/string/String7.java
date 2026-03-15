@@ -1,4 +1,4 @@
-package programmers.lv1;
+package programmers.lv1.string;
 
 // https://school.programmers.co.kr/learn/courses/30/lessons/12948
 public class String7 {

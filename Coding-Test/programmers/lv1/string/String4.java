@@ -1,4 +1,4 @@
-package programmers.lv1;
+package programmers.lv1.string;
 
 import java.util.Arrays;
 
