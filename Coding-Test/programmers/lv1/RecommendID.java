@@ -7,10 +7,11 @@ public class RecommendID {
         // 소문자, 숫자, -, _, . 이외의 모든 문자를 제거
         id = id.replaceAll("[^a-z0-9-_.]", "");
         // . 여러개 -> .
-        id = id.replaceAll("\\.{2,}", ".");
+        id = id.replaceAll("[.]{2,}", ".");
         // .으로 시작하거나 끝나는 경우 제거
-        id = id.replaceAll("^\\.", "");
-        id = id.replaceAll("\\.$", "");
+        id = id.replaceAll("^[.]", "");
+        id = id.replaceAll("^abc", "abd");
+        id = id.replaceAll("[.]$", "");
         // 빈 문자열일 경우 a로 치환
         if (id.isEmpty()) {
             id = "a";
@@ -29,7 +30,7 @@ public class RecommendID {
     }
 
     public static void main(String[] args) {
-        String id = "ADBD....!@c.abl";
+        String id = "abd...ADBD....!@c.abl";
 
         System.out.println(solution(id));
     }
