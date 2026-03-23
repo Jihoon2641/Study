@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 1 — Short Polling Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: #111118;
+            --surface2: #1a1a24;
+            --border: #2a2a3a;
+            --accent: #ff4545;
+            --accent2: #ff8c42;
+            --good: #3dff9a;
+            --warn: #ffdd57;
+            --text: #e8e8f0;
+            --muted: #6b6b80;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Syne', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── 상단 헤더 ── */
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .step-badge {
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 11px;
+            letter-spacing: 0.15em;
+            background: var(--accent);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-size: 18px;
+            font-weight: 700;
+            flex: 1;
+        }
+
+        .polling-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .pulse.paused {
+            background: var(--muted);
+            animation: none;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.4;
+                transform: scale(0.8);
+            }
+        }
+
+        /* ── 메인 레이아웃 ── */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            height: calc(100vh - 57px);
+        }
+
+        /* ── 채팅 영역 ── */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            animation: msgIn 0.2s ease-out;
+        }
+
+        @keyframes msgIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .msg.mine {
+            align-items: flex-end;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: var(--muted);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .msg-meta .sender {
+            color: var(--accent2);
+            font-weight: 500;
+        }
+
+        .msg-meta .mid {
+            color: var(--border);
+            font-size: 10px;
+        }
+
+        .msg-bubble {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            word-break: break-word;
+        }
+
+        .msg.mine .msg-bubble {
+            background: #1e1430;
+            border-color: #3d2860;
+            color: #c9b8ff;
+        }
+
+        .msg-bubble .ts {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 4px;
+            display: block;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .empty-state .icon {
+            font-size: 32px;
+            opacity: 0.3;
+        }
+
+        /* ── 입력 영역 ── */
+        .chat-input-area {
+            border-top: 1px solid var(--border);
+            padding: 16px 20px;
+            background: var(--surface);
+        }
+
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .name-row label {
+            font-size: 11px;
+            color: var(--muted);
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        input[type="text"] {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 13px;
+            padding: 8px 12px;
+            outline: none;
+            transition: border-color 0.2s;
+            width: 100%;
+        }
+
+        input[type="text"]:focus {
+            border-color: #3d2860;
+        }
+
+        .send-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .send-row input {
+            flex: 1;
+        }
+
+        button {
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 20px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        button:active {
+            opacity: 0.7;
+        }
+
+        button.secondary {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        /* ── 모니터링 패널 ── */
+        .monitor-panel {
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            background: var(--surface);
+        }
+
+        .monitor-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .monitor-panel::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .section {
+            border-bottom: 1px solid var(--border);
+            padding: 16px;
+        }
+
+        .section-title {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ── 통계 카드 ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .stat-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            transition: border-color 0.3s;
+        }
+
+        .stat-card.danger {
+            border-color: rgba(255, 69, 69, 0.4);
+        }
+
+        .stat-card.warn {
+            border-color: rgba(255, 221, 87, 0.3);
+        }
+
+        .stat-card.good {
+            border-color: rgba(61, 255, 154, 0.3);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 4px;
+            line-height: 1.3;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            font-family: var(--mono);
+            line-height: 1;
+        }
+
+        .stat-value.red {
+            color: var(--accent);
+        }
+
+        .stat-value.orange {
+            color: var(--accent2);
+        }
+
+        .stat-value.green {
+            color: var(--good);
+        }
+
+        .stat-value.yellow {
+            color: var(--warn);
+        }
+
+        .stat-sub {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        /* ── 낭비율 바 ── */
+        .waste-bar-wrap {
+            margin-top: 12px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .waste-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .waste-bar-track {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .waste-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--good), var(--warn), var(--accent));
+            background-size: 200% 100%;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        /* ── 요청 로그 ── */
+        .log-list {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 11px;
+        }
+
+        .log-list::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .log-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 4px 8px;
+            border-radius: 4px;
+            animation: logIn 0.15s ease-out;
+            line-height: 1.4;
+            font-family: var(--mono);
+        }
+
+        @keyframes logIn {
+            from {
+                opacity: 0;
+                transform: translateX(-4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry.empty {
+            color: var(--muted);
+        }
+
+        .log-entry.has-msg {
+            background: rgba(61, 255, 154, 0.06);
+            color: var(--good);
+        }
+
+        .log-entry.sent {
+            background: rgba(255, 140, 66, 0.08);
+            color: var(--accent2);
+        }
+
+        .log-time {
+            opacity: 0.5;
+            flex-shrink: 0;
+        }
+
+        .log-type {
+            font-weight: 700;
+            flex-shrink: 0;
+            width: 18px;
+        }
+
+        .log-text {
+            flex: 1;
+            word-break: break-all;
+        }
+
+        /* ── 폴링 제어 ── */
+        .control-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .interval-label {
+            font-size: 11px;
+            color: var(--muted);
+            flex: 1;
+        }
+
+        select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 6px 10px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .btn-sm {
+            padding: 6px 14px;
+            font-size: 12px;
+        }
+
+        /* ── 설명 박스 ── */
+        .explanation {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            padding: 12px;
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .explanation strong {
+            color: var(--text);
+        }
+
+        .explanation .highlight {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* ── 요청 타임라인 ── */
+        .timeline {
+            display: flex;
+            gap: 3px;
+            flex-wrap: wrap;
+            max-height: 60px;
+            overflow: hidden;
+        }
+
+        .tick {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .tick.empty {
+            background: var(--border);
+        }
+
+        .tick.filled {
+            background: var(--good);
+        }
+
+        .tick.new {
+            animation: tickPop 0.3s ease-out;
+        }
+
+        @keyframes tickPop {
+            from {
+                transform: scale(0);
+            }
+
+            to {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <span class="step-badge">Step 1</span>
+        <h1>Short Polling Chat</h1>
+        <div class="polling-indicator">
+            <div class="pulse" id="pulseIndicator"></div>
+            <span id="pollingStatus">폴링 중...</span>
+        </div>
+    </header>
+
+    <div class="layout">
+
+        <!-- ── 채팅 패널 ── -->
+        <div class="chat-panel">
+            <div class="chat-messages" id="chatMessages">
+                <div class="empty-state" id="emptyState">
+                    <div class="icon">💬</div>
+                    <div>아직 메시지가 없습니다</div>
+                    <div style="font-size:11px">채팅을 시작해보세요</div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="name-row">
+                    <label>이름</label>
+                    <input type="text" id="senderInput" value="User1" style="max-width:200px">
+                </div>
+                <div class="send-row">
+                    <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." maxlength="200">
+                    <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── 모니터링 패널 ── -->
+        <div class="monitor-panel">
+
+            <!-- 제어 섹션 -->
+            <div class="section">
+                <div class="section-title">폴링 제어</div>
+                <div class="control-row">
+                    <span class="interval-label">폴링 간격</span>
+                    <select id="intervalSelect" onchange="changeInterval()">
+                        <option value="500">0.5초</option>
+                        <option value="1000" selected>1초</option>
+                        <option value="2000">2초</option>
+                        <option value="5000">5초</option>
+                    </select>
+                    <button class="btn-sm secondary" id="toggleBtn" onclick="togglePolling()">일시정지</button>
+                </div>
+            </div>
+
+            <!-- 통계 섹션 -->
+            <div class="section">
+                <div class="section-title">HTTP 요청 통계</div>
+                <div class="stats-grid">
+                    <div class="stat-card danger">
+                        <div class="stat-label">총 요청 수</div>
+                        <div class="stat-value red" id="statTotal">0</div>
+                        <div class="stat-sub">전체 HTTP 요청</div>
+                    </div>
+                    <div class="stat-card warn">
+                        <div class="stat-label">낭비된 요청</div>
+                        <div class="stat-value orange" id="statEmpty">0</div>
+                        <div class="stat-sub">빈 응답 횟수</div>
+                    </div>
+                    <div class="stat-card good">
+                        <div class="stat-label">유효 응답</div>
+                        <div class="stat-value green" id="statDelivered">0</div>
+                        <div class="stat-sub">메시지 있는 응답</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">총 메시지</div>
+                        <div class="stat-value yellow" id="statMessages">0</div>
+                        <div class="stat-sub">전송된 메시지</div>
+                    </div>
+                </div>
+
+                <div class="waste-bar-wrap">
+                    <div class="waste-bar-label">
+                        <span>낭비율 (빈 요청 비율)</span>
+                        <span id="wasteRatioLabel" style="color: var(--accent); font-weight:700">0.0%</span>
+                    </div>
+                    <div class="waste-bar-track">
+                        <div class="waste-bar-fill" id="wasteBarFill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 요청 타임라인 -->
+            <div class="section">
+                <div class="section-title">요청 타임라인</div>
+                <div style="font-size:10px; color:var(--muted); margin-bottom:8px; display:flex; gap:12px;">
+                    <span><span
+                            style="display:inline-block;width:8px;height:8px;background:var(--border);border-radius:1px;margin-right:4px;"></span>빈
+                        응답</span>
+                    <span><span
+                            style="display:inline-block;width:8px;height:8px;background:var(--good);border-radius:1px;margin-right:4px;"></span>메시지
+                        있음</span>
+                </div>
+                <div class="timeline" id="timeline"></div>
+            </div>
+
+            <!-- 요청 로그 -->
+            <div class="section">
+                <div class="section-title">실시간 요청 로그</div>
+                <div class="log-list" id="logList"></div>
+            </div>
+
+            <!-- 문제점 설명 -->
+            <div class="section">
+                <div class="section-title">왜 문제인가?</div>
+                <div class="explanation">
+                    <strong>Short Polling의 근본적 문제</strong><br><br>
+                    클라이언트는 새 메시지가 있는지 알 수 없기 때문에<br>
+                    <span class="highlight">무조건 1초마다 서버에 물어봅니다.</span><br><br>
+                    채팅이 조용한 동안에도 HTTP 연결 수립 → 요청 → 응답 사이클이 반복됩니다.<br><br>
+                    사용자 100명이 채팅방에 있으면?<br>
+                    <span class="highlight">→ 초당 100개의 HTTP 요청 발생</span><br>
+                    → 대부분은 "새 메시지 없음" 응답<br>
+                    → 서버 자원 낭비, 메시지 딜레이 최대 1초<br><br>
+                    <strong>다음 단계:</strong> Long Polling으로 빈 응답을 없앱니다.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8080/api';
+
+        let lastId = 0;
+        let isPolling = true;
+        let pollingInterval = 1000;
+        let pollingTimer = null;
+        let myName = 'User1';
+        const MAX_LOG = 80;
+        const MAX_TIMELINE = 60;
+
+        // ── 초기화 ──────────────────────────────────────
+        window.addEventListener('load', () => {
+            document.getElementById('senderInput').addEventListener('input', e => {
+                myName = e.target.value || '익명';
+            });
+            document.getElementById('messageInput').addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+            startPolling();
+        });
+
+        // ── 폴링 제어 ────────────────────────────────────
+        function startPolling() {
+            if (pollingTimer) clearInterval(pollingTimer);
+            pollingTimer = setInterval(poll, pollingInterval);
+            document.getElementById('pulseIndicator').classList.remove('paused');
+            document.getElementById('pollingStatus').textContent = `폴링 중 (${pollingInterval / 1000}s 간격)`;
+        }
+
+        function togglePolling() {
+            isPolling = !isPolling;
+            const btn = document.getElementById('toggleBtn');
+            const pulse = document.getElementById('pulseIndicator');
+            if (isPolling) {
+                startPolling();
+                btn.textContent = '일시정지';
+                btn.style.background = '';
+            } else {
+                clearInterval(pollingTimer);
+                pollingTimer = null;
+                pulse.classList.add('paused');
+                document.getElementById('pollingStatus').textContent = '일시정지됨';
+                btn.textContent = '재시작';
+                btn.style.background = 'var(--good)';
+                btn.style.color = '#000';
+            }
+        }
+
+        function changeInterval() {
+            pollingInterval = parseInt(document.getElementById('intervalSelect').value);
+            if (isPolling) startPolling();
+        }
+
+        // ── 핵심: Short Polling 함수 ─────────────────────
+        async function poll() {
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API}/messages/poll?lastId=${lastId}`);
+                const data = await res.json();
+                const elapsed = Date.now() - t0;
+
+                const hasNew = data.hasNew;
+                const messages = data.messages;
+                const stats = data.stats;
+
+                // 새 메시지가 있으면 렌더링
+                if (hasNew && messages.length > 0) {
+                    messages.forEach(renderMessage);
+                    lastId = messages[messages.length - 1].id;
+                }
+
+                // 통계 업데이트
+                updateStats(stats);
+
+                // 로그 추가
+                addLog(hasNew, messages.length, elapsed, stats.totalRequests);
+
+                // 타임라인 업데이트
+                addTimelineTick(hasNew);
+
+            } catch (err) {
+                addLogEntry('error', `서버 연결 실패: ${err.message}`);
+            }
+        }
+
+        // ── 메시지 렌더링 ────────────────────────────────
+        function renderMessage(msg) {
+            const container = document.getElementById('chatMessages');
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            const isMine = msg.sender === myName;
+            const div = document.createElement('div');
+            div.className = `msg ${isMine ? 'mine' : ''}`;
+            div.innerHTML = `
+                <div class="msg-meta">
+                    <span class="sender">${escapeHtml(msg.sender)}</span>
+                    <span class="mid">#${msg.id}</span>
+                    <span>${msg.timestamp}</span>
+                </div>
+                <div class="msg-bubble">
+                    ${escapeHtml(msg.content)}
+                </div>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ── 메시지 전송 ──────────────────────────────────
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content) return;
+
+            input.value = '';
+            input.focus();
+
+            try {
+                await fetch(`${API}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sender: myName, content })
+                });
+                addLogEntry('sent', `전송: "${content.substring(0, 30)}${content.length > 30 ? '...' : ''}"`);
+            } catch (err) {
+                addLogEntry('error', '전송 실패: ' + err.message);
+            }
+        }
+
+        // ── 통계 업데이트 ────────────────────────────────
+        function updateStats(stats) {
+            document.getElementById('statTotal').textContent = stats.totalRequests.toLocaleString();
+            document.getElementById('statEmpty').textContent = stats.emptyResponses.toLocaleString();
+            document.getElementById('statDelivered').textContent = stats.messagesDelivered.toLocaleString();
+
+            // 메시지 수 별도 조회
+            document.getElementById('statMessages').textContent =
+                (stats.totalRequests - stats.emptyResponses - (stats.totalRequests - stats.emptyResponses - stats.messagesDelivered) + '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+            const waste = parseFloat(stats.wasteRatio);
+            document.getElementById('wasteRatioLabel').textContent = waste.toFixed(1) + '%';
+            document.getElementById('wasteBarFill').style.width = Math.min(waste, 100) + '%';
+
+            // 낭비율에 따라 색상 변경
+            const wasteEl = document.getElementById('wasteRatioLabel');
+            if (waste >= 80) wasteEl.style.color = 'var(--accent)';
+            else if (waste >= 50) wasteEl.style.color = 'var(--warn)';
+            else wasteEl.style.color = 'var(--good)';
+        }
+
+        // ── 요청 로그 ────────────────────────────────────
+        function addLog(hasNew, count, elapsed, reqNum) {
+            const logList = document.getElementById('logList');
+            const entry = document.createElement('div');
+            const time = new Date().toTimeString().slice(0, 8);
+
+            if (hasNew) {
+                entry.className = 'log-entry has-msg';
+                entry.innerHTML = `
+                    <span class="log-time">${time}</span>
+                    <span class="log-type" style="color:var(--good)">▲</span>
+                    <span class="log-text">GET /poll → <strong>${count}개 메시지</strong> (${elapsed}ms)</span>
+                `;
+            } else {
+                entry.className = 'log-entry empty';
+                entry.innerHTML = `
+                    <span class="log-time">${time}</span>
+                    <span class="log-type">·</span>
+                    <span class="log-text">GET /poll → 빈 응답 (${elapsed}ms) [#${reqNum}]</span>
+                `;
+            }
+
+            logList.insertBefore(entry, logList.firstChild);
+
+            // 최대 로그 개수 제한
+            while (logList.children.length > MAX_LOG) {
+                logList.removeChild(logList.lastChild);
+            }
+        }
+
+        function addLogEntry(type, text) {
+            const logList = document.getElementById('logList');
+            const entry = document.createElement('div');
+            const time = new Date().toTimeString().slice(0, 8);
+
+            if (type === 'sent') {
+                entry.className = 'log-entry sent';
+                entry.innerHTML = `
+                    <span class="log-time">${time}</span>
+                    <span class="log-type" style="color:var(--accent2)">↑</span>
+                    <span class="log-text">${escapeHtml(text)}</span>
+                `;
+            } else {
+                entry.className = 'log-entry';
+                entry.innerHTML = `
+                    <span class="log-time">${time}</span>
+                    <span class="log-type" style="color:var(--accent)">!</span>
+                    <span class="log-text">${escapeHtml(text)}</span>
+                `;
+            }
+
+            logList.insertBefore(entry, logList.firstChild);
+            while (logList.children.length > MAX_LOG) logList.removeChild(logList.lastChild);
+        }
+
+        // ── 타임라인 ─────────────────────────────────────
+        function addTimelineTick(hasNew) {
+            const timeline = document.getElementById('timeline');
+            const tick = document.createElement('div');
+            tick.className = `tick new ${hasNew ? 'filled' : 'empty'}`;
+            tick.title = hasNew ? '메시지 있음' : '빈 응답';
+            timeline.insertBefore(tick, timeline.firstChild);
+
+            // 최대 개수 유지
+            while (timeline.children.length > MAX_TIMELINE) {
+                timeline.removeChild(timeline.lastChild);
+            }
+
+            // 잠시 후 new 클래스 제거
+            setTimeout(() => tick.classList.remove('new'), 400);
+        }
+
+        // ── 유틸 ─────────────────────────────────────────
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
