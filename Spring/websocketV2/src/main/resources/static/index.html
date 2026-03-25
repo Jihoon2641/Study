@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 2 — Long Polling Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0f0a;
+            --surface: #0f150f;
+            --surface2: #161e16;
+            --border: #253025;
+            --accent: #3dff9a;
+            --accent2: #57e89c;
+            --warn: #ffdd57;
+            --danger: #ff4545;
+            --blue: #5aa3ff;
+            --text: #ddeedd;
+            --muted: #5a7a5a;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Syne', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .step-badge {
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 11px;
+            letter-spacing: 0.15em;
+            background: var(--accent);
+            color: #061206;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-size: 18px;
+            font-weight: 700;
+            flex: 1;
+        }
+
+        /* 연결 상태 표시 */
+        .conn-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .conn-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            transition: background 0.3s;
+        }
+
+        .conn-dot.waiting {
+            background: var(--warn);
+            animation: breathe 2s ease-in-out infinite;
+        }
+
+        .conn-dot.connected {
+            background: var(--accent);
+            animation: none;
+        }
+
+        .conn-dot.idle {
+            background: var(--muted);
+            animation: none;
+        }
+
+        @keyframes breathe {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(0.85);
+            }
+        }
+
+        /* ── 레이아웃 ── */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            height: calc(100vh - 57px);
+        }
+
+        /* ── 채팅 패널 ── */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            animation: msgIn 0.2s ease-out;
+        }
+
+        @keyframes msgIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .msg.mine {
+            align-items: flex-end;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: var(--muted);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .msg-meta .sender {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .msg-meta .mid {
+            color: var(--border);
+            font-size: 10px;
+        }
+
+        .msg-bubble {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            word-break: break-word;
+        }
+
+        .msg.mine .msg-bubble {
+            background: #0c1e0c;
+            border-color: #1e4a1e;
+            color: #a8ffb8;
+        }
+
+        /* 메시지 도착 지연 표시 */
+        .latency-tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(61, 255, 154, 0.1);
+            color: var(--accent);
+            margin-left: 4px;
+        }
+
+        .latency-tag.fast {
+            background: rgba(61, 255, 154, 0.15);
+            color: var(--accent);
+        }
+
+        .latency-tag.slow {
+            background: rgba(255, 221, 87, 0.15);
+            color: var(--warn);
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .empty-state .icon {
+            font-size: 32px;
+            opacity: 0.3;
+        }
+
+        /* ── 입력 영역 ── */
+        .chat-input-area {
+            border-top: 1px solid var(--border);
+            padding: 16px 20px;
+            background: var(--surface);
+        }
+
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .name-row label {
+            font-size: 11px;
+            color: var(--muted);
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        input[type="text"] {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 13px;
+            padding: 8px 12px;
+            outline: none;
+            transition: border-color 0.2s;
+            width: 100%;
+        }
+
+        input[type="text"]:focus {
+            border-color: #1e4a1e;
+        }
+
+        .send-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .send-row input {
+            flex: 1;
+        }
+
+        button {
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #061206;
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 20px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        button.secondary {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        /* ── 모니터링 패널 ── */
+        .monitor-panel {
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            background: var(--surface);
+        }
+
+        .monitor-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .monitor-panel::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .section {
+            border-bottom: 1px solid var(--border);
+            padding: 16px;
+        }
+
+        .section-title {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ── 연결 상태 시각화 ── */
+        .connection-viz {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin-bottom: 12px;
+            font-size: 11px;
+        }
+
+        .viz-node {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--muted);
+            font-size: 11px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .viz-node.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(61, 255, 154, 0.05);
+        }
+
+        .viz-arrow {
+            flex: 1;
+            height: 2px;
+            background: var(--border);
+            position: relative;
+            margin: 0 4px;
+        }
+
+        .viz-arrow.active {
+            background: var(--accent);
+        }
+
+        .viz-arrow.waiting {
+            background: linear-gradient(90deg, var(--accent) 0%, var(--warn) 50%, var(--muted) 100%);
+            background-size: 200%;
+            animation: flow 1.5s linear infinite;
+        }
+
+        @keyframes flow {
+            0% {
+                background-position: 100% 0;
+            }
+
+            100% {
+                background-position: -100% 0;
+            }
+        }
+
+        .viz-label {
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        /* ── 통계 카드 ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .stat-card.highlight {
+            border-color: rgba(61, 255, 154, 0.3);
+        }
+
+        .stat-card.warn-card {
+            border-color: rgba(255, 221, 87, 0.2);
+        }
+
+        .stat-card.danger-card {
+            border-color: rgba(255, 69, 69, 0.2);
+        }
+
+        .stat-card.blue-card {
+            border-color: rgba(90, 163, 255, 0.2);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 4px;
+            line-height: 1.3;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-value.green {
+            color: var(--accent);
+        }
+
+        .stat-value.yellow {
+            color: var(--warn);
+        }
+
+        .stat-value.red {
+            color: var(--danger);
+        }
+
+        .stat-value.blue {
+            color: var(--blue);
+        }
+
+        .stat-sub {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        /* ── 1단계 vs 2단계 비교 ── */
+        .compare-row {
+            display: flex;
+            gap: 6px;
+            align-items: stretch;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+
+        .compare-label {
+            width: 90px;
+            flex-shrink: 0;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            font-size: 10px;
+        }
+
+        .compare-bars {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .bar-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+        }
+
+        .bar-tag {
+            width: 24px;
+            flex-shrink: 0;
+            font-size: 9px;
+            color: var(--muted);
+        }
+
+        .bar-track {
+            flex: 1;
+            height: 12px;
+            background: var(--surface2);
+            border-radius: 2px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+            min-width: 2px;
+        }
+
+        .bar-fill.s1 {
+            background: #ff4545;
+        }
+
+        .bar-fill.s2 {
+            background: var(--accent);
+        }
+
+        .bar-val {
+            font-size: 10px;
+            color: var(--muted);
+            min-width: 28px;
+            text-align: right;
+        }
+
+        /* ── 대기 요청 게이지 ── */
+        .pending-gauge {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .gauge-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+
+        .gauge-label {
+            color: var(--muted);
+        }
+
+        .gauge-value {
+            color: var(--blue);
+            font-weight: 700;
+        }
+
+        .gauge-track {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+
+        .gauge-fill {
+            height: 100%;
+            background: var(--blue);
+            border-radius: 4px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+
+        .gauge-sub {
+            font-size: 10px;
+            color: var(--muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* ── 로그 ── */
+        .log-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 11px;
+        }
+
+        .log-list::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .log-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 4px 8px;
+            border-radius: 4px;
+            animation: logIn 0.15s ease-out;
+            line-height: 1.4;
+        }
+
+        @keyframes logIn {
+            from {
+                opacity: 0;
+                transform: translateX(-4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry.waiting {
+            color: var(--warn);
+            background: rgba(255, 221, 87, 0.04);
+        }
+
+        .log-entry.immediate {
+            color: var(--accent);
+            background: rgba(61, 255, 154, 0.05);
+        }
+
+        .log-entry.timeout {
+            color: var(--muted);
+        }
+
+        .log-entry.sent {
+            color: #ff9a3d;
+            background: rgba(255, 154, 61, 0.06);
+        }
+
+        .log-time {
+            opacity: 0.5;
+            flex-shrink: 0;
+        }
+
+        .log-type {
+            font-weight: 700;
+            flex-shrink: 0;
+            width: 16px;
+        }
+
+        .log-text {
+            flex: 1;
+        }
+
+        /* ── 설명 ── */
+        .explanation {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            padding: 12px;
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .explanation strong {
+            color: var(--text);
+        }
+
+        .explanation .highlight {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .explanation .bad {
+            color: var(--danger);
+        }
+
+        /* ── 타임라인 ── */
+        .timeline {
+            display: flex;
+            gap: 3px;
+            flex-wrap: wrap;
+            max-height: 46px;
+            overflow: hidden;
+        }
+
+        .tick {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+            animation: tickPop 0.3s ease-out;
+        }
+
+        @keyframes tickPop {
+            from {
+                transform: scale(0);
+            }
+
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .tick.timeout {
+            background: var(--border);
+        }
+
+        .tick.immediate {
+            background: var(--accent);
+        }
+
+        .tick.waiting {
+            background: var(--warn);
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <span class="step-badge">Step 2</span>
+        <h1>Long Polling Chat</h1>
+        <div class="conn-indicator">
+            <div class="conn-dot" id="connDot"></div>
+            <span id="connStatus">연결 대기 중...</span>
+        </div>
+    </header>
+
+    <div class="layout">
+
+        <!-- ── 채팅 패널 ── -->
+        <div class="chat-panel">
+            <div class="chat-messages" id="chatMessages">
+                <div class="empty-state" id="emptyState">
+                    <div class="icon">💬</div>
+                    <div>아직 메시지가 없습니다</div>
+                    <div style="font-size:11px">채팅을 시작해보세요</div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="name-row">
+                    <label>이름</label>
+                    <input type="text" id="senderInput" value="User1" style="max-width:200px">
+                </div>
+                <div class="send-row">
+                    <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." maxlength="200">
+                    <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── 모니터링 패널 ── -->
+        <div class="monitor-panel">
+
+            <!-- 연결 상태 시각화 -->
+            <div class="section">
+                <div class="section-title">연결 상태</div>
+                <div class="connection-viz">
+                    <div class="viz-node" id="vizClient">Client</div>
+                    <div class="viz-arrow" id="vizArrow" style="position:relative; margin-top:10px;">
+                        <span class="viz-label" id="vizLabel">대기 중</span>
+                    </div>
+                    <div class="viz-node" id="vizServer">Server</div>
+                </div>
+                <div style="font-size:11px; color:var(--muted); text-align:center; margin-top:4px;" id="vizDesc">
+                    서버에서 새 메시지를 기다리는 중...
+                </div>
+            </div>
+
+            <!-- 통계 카드 -->
+            <div class="section">
+                <div class="section-title">요청 통계</div>
+                <div class="stats-grid">
+                    <div class="stat-card highlight">
+                        <div class="stat-label">총 요청 수</div>
+                        <div class="stat-value green" id="statTotal">0</div>
+                        <div class="stat-sub">누적 연결 횟수</div>
+                    </div>
+                    <div class="stat-card blue-card">
+                        <div class="stat-label">현재 대기 중</div>
+                        <div class="stat-value blue" id="statPending">0</div>
+                        <div class="stat-sub">서버에서 홀딩 중</div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <div class="stat-label">즉시 응답</div>
+                        <div class="stat-value green" id="statImmediate">0</div>
+                        <div class="stat-sub">메시지로 즉시 응답</div>
+                    </div>
+                    <div class="stat-card warn-card">
+                        <div class="stat-label">타임아웃</div>
+                        <div class="stat-value yellow" id="statTimeout">0</div>
+                        <div class="stat-sub">30초 후 빈 응답</div>
+                    </div>
+                </div>
+
+                <!-- 대기 요청 게이지 -->
+                <div class="pending-gauge">
+                    <div class="gauge-header">
+                        <span class="gauge-label">서버 홀딩 요청</span>
+                        <span class="gauge-value"><span id="gaugeCurrent">0</span> / <span id="gaugePeak">0</span>
+                            peak</span>
+                    </div>
+                    <div class="gauge-track">
+                        <div class="gauge-fill" id="gaugeFill"></div>
+                    </div>
+                    <div class="gauge-sub">
+                        <span>0</span>
+                        <span>현재 서버가 붙잡고 있는 연결 수</span>
+                        <span id="gaugePeak2">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step1 vs Step2 비교 -->
+            <div class="section">
+                <div class="section-title">Step 1 vs Step 2 비교</div>
+
+                <div class="compare-row">
+                    <div class="compare-label">총 요청</div>
+                    <div class="compare-bars">
+                        <div class="bar-row">
+                            <span class="bar-tag">S1</span>
+                            <div class="bar-track">
+                                <div class="bar-fill s1" id="cmpS1Req" style="width:0%"></div>
+                            </div>
+                            <span class="bar-val" id="cmpS1ReqVal">-</span>
+                        </div>
+                        <div class="bar-row">
+                            <span class="bar-tag">S2</span>
+                            <div class="bar-track">
+                                <div class="bar-fill s2" id="cmpS2Req" style="width:0%"></div>
+                            </div>
+                            <span class="bar-val" id="cmpS2ReqVal">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="compare-row">
+                    <div class="compare-label">낭비/타임아웃</div>
+                    <div class="compare-bars">
+                        <div class="bar-row">
+                            <span class="bar-tag">S1</span>
+                            <div class="bar-track">
+                                <div class="bar-fill s1" id="cmpS1Waste" style="width:0%"></div>
+                            </div>
+                            <span class="bar-val" id="cmpS1WasteVal">-</span>
+                        </div>
+                        <div class="bar-row">
+                            <span class="bar-tag">S2</span>
+                            <div class="bar-track">
+                                <div class="bar-fill s2" id="cmpS2Waste" style="width:0%"></div>
+                            </div>
+                            <span class="bar-val" id="cmpS2WasteVal">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="font-size:10px; color:var(--muted); margin-top:8px; line-height:1.6;">
+                    S1 기준값은 브라우저 세션 로컬 추정치입니다.<br>
+                    (1초 폴링 기준 / 현재 경과 시간으로 계산)
+                </div>
+            </div>
+
+            <!-- 타임라인 -->
+            <div class="section">
+                <div class="section-title">응답 타임라인</div>
+                <div style="font-size:10px; color:var(--muted); margin-bottom:8px; display:flex; gap:12px;">
+                    <span><span
+                            style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:1px;margin-right:4px;"></span>즉시
+                        응답</span>
+                    <span><span
+                            style="display:inline-block;width:8px;height:8px;background:var(--warn);border-radius:1px;margin-right:4px;"></span>대기
+                        중</span>
+                    <span><span
+                            style="display:inline-block;width:8px;height:8px;background:var(--border);border-radius:1px;margin-right:4px;"></span>타임아웃</span>
+                </div>
+                <div class="timeline" id="timeline"></div>
+            </div>
+
+            <!-- 로그 -->
+            <div class="section">
+                <div class="section-title">실시간 로그</div>
+                <div class="log-list" id="logList"></div>
+            </div>
+
+            <!-- 설명 -->
+            <div class="section">
+                <div class="section-title">핵심 차이</div>
+                <div class="explanation">
+                    <strong>Short Polling</strong>과의 결정적 차이<br><br>
+                    서버는 새 메시지가 없으면 <span class="highlight">응답을 보내지 않고 연결을 붙잡아 둡니다.</span><br><br>
+                    메시지가 오는 순간 대기 중인 모든 클라이언트에게 <span class="highlight">즉시 Push</span>합니다.<br><br>
+                    <strong>개선된 점:</strong><br>
+                    → 빈 응답 폭발 제거<br>
+                    → 메시지 수신 지연 거의 0ms<br><br>
+                    <strong>여전히 남은 문제:</strong><br>
+                    → <span class="bad">타임아웃마다 새 HTTP 연결 수립</span><br>
+                    → <span class="bad">서버 스레드를 연결당 1개씩 점유</span><br>
+                    → 클라이언트가 많으면 스레드 부족<br><br>
+                    <strong>다음 단계:</strong> SSE로 연결 재수립 오버헤드를 없앱니다.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8080/api';
+        const TIMEOUT_MS = 30000;
+
+        let lastId = 0;
+        let myName = 'User1';
+        let isRunning = true;
+
+        // 비교용: 1단계 추정값
+        const startTime = Date.now();
+
+        window.addEventListener('load', () => {
+            document.getElementById('senderInput').addEventListener('input', e => {
+                myName = e.target.value || '익명';
+            });
+            document.getElementById('messageInput').addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+
+            startLongPolling();
+            setInterval(updateComparisonStats, 2000);
+        });
+
+        // ── Long Polling 메인 루프 ──────────────────────────────
+        async function startLongPolling() {
+            while (isRunning) {
+                await longPoll();
+            }
+        }
+
+        /**
+         * [핵심] Long Polling 단일 사이클
+         *
+         * Short Polling과 코드 차이:
+         * Short Polling: setInterval(() => fetch(...), 1000)  ← 1초마다 새 요청
+         * Long Polling:  await fetch(...)  ← 응답 올 때까지 await (30초까지 기다림)
+         *                받으면 즉시 다음 await fetch(...)
+         */
+        async function longPoll() {
+            setConnectionState('waiting');
+            addTimelineTick('waiting');
+
+            const t0 = Date.now();
+
+            try {
+                const res = await fetch(`${API}/messages/poll?lastId=${lastId}&timeout=${TIMEOUT_MS}`, {
+                    signal: AbortSignal.timeout(TIMEOUT_MS + 5000) // 네트워크 타임아웃 여유
+                });
+
+                const messages = await res.json();
+                const elapsed = Date.now() - t0;
+
+                if (messages.length > 0) {
+                    // 메시지 있음 → 즉시 응답 받은 것
+                    messages.forEach(renderMessage);
+                    lastId = messages[messages.length - 1].id;
+                    setConnectionState('connected');
+                    updateTimelineLastTick('immediate');
+                    addLog('immediate', `즉시 응답 ${messages.length}개 (${elapsed}ms)`);
+                } else {
+                    // 빈 배열 → 타임아웃 응답
+                    setConnectionState('idle');
+                    updateTimelineLastTick('timeout');
+                    addLog('timeout', `타임아웃 (${(elapsed / 1000).toFixed(1)}s 대기 후 빈 응답)`);
+                }
+
+                // 서버 통계 갱신
+                await refreshStats();
+
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    addLog('error', `연결 오류: ${err.message}`);
+                    setConnectionState('idle');
+                    await sleep(3000); // 재연결 대기
+                }
+            }
+        }
+
+        // ── 메시지 렌더링 ────────────────────────────────────────
+        function renderMessage(msg) {
+            const container = document.getElementById('chatMessages');
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            const isMine = msg.sender === myName;
+            const div = document.createElement('div');
+            div.className = `msg ${isMine ? 'mine' : ''}`;
+            div.innerHTML = `
+      <div class="msg-meta">
+        <span class="sender">${escapeHtml(msg.sender)}</span>
+        <span class="mid">#${msg.id}</span>
+        <span>${msg.timestamp}</span>
+      </div>
+      <div class="msg-bubble">${escapeHtml(msg.content)}</div>
+    `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ── 메시지 전송 ─────────────────────────────────────────
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content) return;
+            input.value = '';
+            input.focus();
+
+            try {
+                await fetch(`${API}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sender: myName, content })
+                });
+                addLog('sent', `전송: "${content.substring(0, 30)}${content.length > 30 ? '...' : ''}"`);
+            } catch (err) {
+                addLog('error', '전송 실패: ' + err.message);
+            }
+        }
+
+        // ── 연결 상태 UI ─────────────────────────────────────────
+        function setConnectionState(state) {
+            const dot = document.getElementById('connDot');
+            const status = document.getElementById('connStatus');
+            const vizArrow = document.getElementById('vizArrow');
+            const vizLabel = document.getElementById('vizLabel');
+            const vizDesc = document.getElementById('vizDesc');
+            const vizClient = document.getElementById('vizClient');
+            const vizServer = document.getElementById('vizServer');
+
+            dot.className = `conn-dot ${state}`;
+
+            if (state === 'waiting') {
+                status.textContent = '서버 대기 중 (연결 유지)';
+                vizArrow.className = 'viz-arrow waiting';
+                vizLabel.textContent = '대기 중 (연결 열림)';
+                vizDesc.textContent = '서버가 새 메시지가 생길 때까지 응답을 보류하고 있습니다';
+                vizClient.className = 'viz-node active';
+                vizServer.className = 'viz-node active';
+            } else if (state === 'connected') {
+                status.textContent = '메시지 수신!';
+                vizArrow.className = 'viz-arrow active';
+                vizLabel.textContent = '메시지 Push!';
+                vizDesc.textContent = '새 메시지가 생겨 서버가 즉시 응답을 전송했습니다';
+                vizClient.className = 'viz-node active';
+                vizServer.className = 'viz-node active';
+            } else {
+                status.textContent = '재연결 중...';
+                vizArrow.className = 'viz-arrow';
+                vizLabel.textContent = '타임아웃 → 재연결';
+                vizDesc.textContent = '30초 대기 후 타임아웃. 즉시 새 연결을 수립합니다';
+                vizClient.className = 'viz-node';
+                vizServer.className = 'viz-node';
+            }
+        }
+
+        // ── 통계 갱신 ────────────────────────────────────────────
+        async function refreshStats() {
+            try {
+                const res = await fetch(`${API}/stats`);
+                const s = await res.json();
+
+                document.getElementById('statTotal').textContent = s.totalRequests;
+                document.getElementById('statPending').textContent = s.pendingRequests;
+                document.getElementById('statImmediate').textContent = s.immediateResponses;
+                document.getElementById('statTimeout').textContent = s.timeoutResponses;
+                document.getElementById('gaugeCurrent').textContent = s.pendingRequests;
+                document.getElementById('gaugePeak').textContent = s.peakPendingRequests;
+                document.getElementById('gaugePeak2').textContent = s.peakPendingRequests;
+
+                const peakVal = Math.max(s.peakPendingRequests, 1);
+                document.getElementById('gaugeFill').style.width =
+                    Math.min((s.pendingRequests / peakVal) * 100, 100) + '%';
+
+            } catch (e) { /* 통계 조회 실패는 무시 */ }
+        }
+
+        // ── Step1 vs Step2 비교 추정치 ───────────────────────────
+        function updateComparisonStats() {
+            const elapsedSec = (Date.now() - startTime) / 1000;
+
+            // S1 추정: 1초마다 요청했을 경우
+            const s1Req = Math.floor(elapsedSec);
+            const s1Waste = Math.floor(elapsedSec * 0.95); // 약 95% 낭비 추정
+
+            // S2 실제값
+            const s2ReqEl = document.getElementById('statTotal');
+            const s2ToutEl = document.getElementById('statTimeout');
+            const s2Req = parseInt(s2ReqEl.textContent) || 0;
+            const s2Waste = parseInt(s2ToutEl.textContent) || 0;
+
+            const maxReq = Math.max(s1Req, s2Req, 1);
+            const maxWaste = Math.max(s1Waste, s2Waste, 1);
+
+            document.getElementById('cmpS1Req').style.width = Math.min((s1Req / maxReq) * 100, 100) + '%';
+            document.getElementById('cmpS2Req').style.width = Math.min((s2Req / maxReq) * 100, 100) + '%';
+            document.getElementById('cmpS1ReqVal').textContent = s1Req;
+            document.getElementById('cmpS2ReqVal').textContent = s2Req;
+
+            document.getElementById('cmpS1Waste').style.width = Math.min((s1Waste / maxWaste) * 100, 100) + '%';
+            document.getElementById('cmpS2Waste').style.width = Math.min((s2Waste / maxWaste) * 100, 100) + '%';
+            document.getElementById('cmpS1WasteVal').textContent = s1Waste;
+            document.getElementById('cmpS2WasteVal').textContent = s2Waste;
+        }
+
+        // ── 타임라인 ─────────────────────────────────────────────
+        let lastTick = null;
+
+        function addTimelineTick(type) {
+            const timeline = document.getElementById('timeline');
+            const tick = document.createElement('div');
+            tick.className = `tick ${type}`;
+            lastTick = tick;
+            timeline.insertBefore(tick, timeline.firstChild);
+            while (timeline.children.length > 50) timeline.removeChild(timeline.lastChild);
+        }
+
+        function updateTimelineLastTick(type) {
+            if (lastTick) lastTick.className = `tick ${type}`;
+        }
+
+        // ── 로그 ─────────────────────────────────────────────────
+        function addLog(type, text) {
+            const logList = document.getElementById('logList');
+            const entry = document.createElement('div');
+            const time = new Date().toTimeString().slice(0, 8);
+
+            const icons = { immediate: '▲', timeout: '○', sent: '↑', waiting: '◌', error: '!' };
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `
+      <span class="log-time">${time}</span>
+      <span class="log-type">${icons[type] || '·'}</span>
+      <span class="log-text">${escapeHtml(text)}</span>
+    `;
+            logList.insertBefore(entry, logList.firstChild);
+            while (logList.children.length > 60) logList.removeChild(logList.lastChild);
+        }
+
+        // ── 유틸 ─────────────────────────────────────────────────
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>

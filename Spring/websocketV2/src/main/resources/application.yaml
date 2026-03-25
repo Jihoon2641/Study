@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: websocketV2
+  mvc:
+    async:
+      request-timeout: 35000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, threaddump
+  endpoint:
+    threaddump:
+      enabled: true
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.websocketV2: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n"
