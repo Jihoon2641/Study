@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: websocketV4
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, threaddump
+  endpoint:
+    threaddump:
+      enabled: true
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.chat: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n"
