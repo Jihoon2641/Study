@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 5 — STOMP WebSocket Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap"
+        rel="stylesheet">
+
+    <!-- SockJS: WebSocket 미지원 환경 폴백 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <!-- STOMP.js: STOMP 프로토콜 클라이언트 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #080f0e;
+            --surface: #0d1714;
+            --surface2: #132019;
+            --border: #1e3028;
+            --accent: #00e5a0;
+            --accent2: #4dffc0;
+            --warn: #ffdd57;
+            --danger: #ff4545;
+            --blue: #5aa3ff;
+            --purple: #c084fc;
+            --orange: #ff9a3d;
+            --text: #d4f5ec;
+            --muted: #3d7060;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Syne', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .step-badge {
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 11px;
+            letter-spacing: 0.15em;
+            background: var(--accent);
+            color: #080f0e;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-size: 18px;
+            font-weight: 700;
+            flex: 1;
+        }
+
+        .stomp-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            transition: all 0.3s;
+        }
+
+        .stomp-badge.connected {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0, 229, 160, 0.06);
+        }
+
+        .stomp-badge.connecting {
+            border-color: var(--warn);
+            color: var(--warn);
+        }
+
+        .stomp-badge.error {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .stomp-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .stomp-badge.connected .stomp-dot {
+            animation: stompPulse 2s infinite;
+        }
+
+        @keyframes stompPulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0.3
+            }
+        }
+
+        /* ── 3열 레이아웃 ── */
+        .layout {
+            display: grid;
+            grid-template-columns: 200px 1fr 420px;
+            height: calc(100vh - 53px);
+        }
+
+        /* ── 사이드바 ── */
+        .sidebar {
+            border-right: 1px solid var(--border);
+            background: var(--surface);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-title {
+            padding: 12px 14px 8px;
+            font-size: 10px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .room-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(30, 48, 40, 0.5);
+            transition: background 0.15s;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .room-item:hover {
+            background: var(--surface2);
+        }
+
+        .room-item.active {
+            background: rgba(0, 229, 160, 0.08);
+            border-left: 2px solid var(--accent);
+            padding-left: 12px;
+        }
+
+        .room-name {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .room-dest {
+            font-size: 10px;
+            color: var(--muted);
+        }
+
+        .room-dest .dest-tag {
+            color: var(--accent);
+        }
+
+        .name-input-wrap {
+            padding: 12px 14px;
+            border-top: 1px solid var(--border);
+            margin-top: auto;
+        }
+
+        .name-input-wrap label {
+            font-size: 10px;
+            color: var(--muted);
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        input[type="text"] {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 7px 10px;
+            outline: none;
+            transition: border-color 0.2s;
+            width: 100%;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent);
+        }
+
+        /* ── 채팅 패널 ── */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .chat-header {
+            padding: 10px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+        }
+
+        .chat-header .sub-info {
+            color: var(--accent);
+            font-size: 11px;
+            font-family: var(--mono);
+        }
+
+        .chat-header .member-label {
+            color: var(--muted);
+            font-size: 11px;
+            margin-left: auto;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            animation: msgIn 0.2s ease-out;
+        }
+
+        .msg.mine {
+            align-items: flex-end;
+        }
+
+        @keyframes msgIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: var(--muted);
+            display: flex;
+            gap: 8px;
+        }
+
+        .msg-meta .sender {
+            color: var(--accent2);
+            font-weight: 500;
+        }
+
+        .msg-bubble {
+            max-width: 78%;
+            padding: 9px 13px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            word-break: break-word;
+        }
+
+        .msg.mine .msg-bubble {
+            background: #091a13;
+            border-color: #1a4a30;
+            color: #a0ffcc;
+        }
+
+        .system-msg {
+            text-align: center;
+            font-size: 11px;
+            color: var(--muted);
+            padding: 3px 10px;
+            align-self: center;
+            background: rgba(0, 229, 160, 0.05);
+            border-radius: 4px;
+            border: 1px solid rgba(0, 229, 160, 0.1);
+        }
+
+        .join-prompt {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .join-prompt .icon {
+            font-size: 36px;
+            opacity: 0.2;
+        }
+
+        .chat-input-area {
+            border-top: 1px solid var(--border);
+            padding: 14px 18px;
+            background: var(--surface);
+            display: flex;
+            gap: 8px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+        }
+
+        button {
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #080f0e;
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 18px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* ── 모니터링 패널 ── */
+        .monitor-panel {
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            background: var(--surface);
+        }
+
+        .monitor-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .monitor-panel::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .section {
+            border-bottom: 1px solid var(--border);
+            padding: 14px;
+        }
+
+        .section-title {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ── STOMP 프레임 구조 시각화 ── */
+        .frame-viz {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            font-family: var(--mono);
+            line-height: 1.6;
+        }
+
+        .frame-line {
+            display: flex;
+            gap: 8px;
+        }
+
+        .frame-key {
+            color: var(--accent);
+            min-width: 100px;
+            flex-shrink: 0;
+        }
+
+        .frame-val {
+            color: var(--text);
+        }
+
+        .frame-val.highlight {
+            color: var(--warn);
+        }
+
+        .frame-val.muted {
+            color: var(--muted);
+        }
+
+        .frame-sep {
+            border-top: 1px solid var(--border);
+            margin: 6px 0;
+        }
+
+        /* ── 4단계 vs 5단계 비교 ── */
+        .diff-table {
+            width: 100%;
+            font-size: 10px;
+            border-collapse: collapse;
+        }
+
+        .diff-table th {
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--muted);
+            text-align: left;
+            padding: 4px 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .diff-table td {
+            padding: 5px 6px;
+            border-bottom: 1px solid rgba(30, 48, 40, 0.5);
+            vertical-align: top;
+            line-height: 1.5;
+        }
+
+        .diff-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .diff-table .metric {
+            color: var(--muted);
+            font-size: 10px;
+            white-space: nowrap;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+
+        .badge.bad {
+            background: rgba(255, 69, 69, 0.15);
+            color: var(--danger);
+        }
+
+        .badge.good {
+            background: rgba(0, 229, 160, 0.12);
+            color: var(--accent);
+        }
+
+        .badge.mid {
+            background: rgba(255, 154, 61, 0.15);
+            color: var(--orange);
+        }
+
+        /* ── 통계 카드 ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 7px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px;
+        }
+
+        .stat-card.green {
+            border-color: rgba(0, 229, 160, 0.3);
+        }
+
+        .stat-card.blue {
+            border-color: rgba(90, 163, 255, 0.25);
+        }
+
+        .stat-card.purple {
+            border-color: rgba(192, 132, 252, 0.25);
+        }
+
+        .stat-card.orange {
+            border-color: rgba(255, 154, 61, 0.25);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 3px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-value.green {
+            color: var(--accent);
+        }
+
+        .stat-value.blue {
+            color: var(--blue);
+        }
+
+        .stat-value.purple {
+            color: var(--purple);
+        }
+
+        .stat-value.orange {
+            color: var(--orange);
+        }
+
+        .stat-sub {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
+        /* ── STOMP 프레임 로그 ── */
+        .frame-log {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 11px;
+        }
+
+        .frame-log::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .frame-log::-webkit-scrollbar-thumb {
+            background: var(--border);
+        }
+
+        .frame-entry {
+            border-radius: 4px;
+            padding: 4px 8px;
+            animation: frameIn 0.15s ease-out;
+            border: 1px solid transparent;
+            line-height: 1.4;
+        }
+
+        @keyframes frameIn {
+            from {
+                opacity: 0;
+                transform: translateX(-4px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0)
+            }
+        }
+
+        .frame-entry.send {
+            border-color: rgba(0, 229, 160, 0.15);
+            background: rgba(0, 229, 160, 0.04);
+        }
+
+        .frame-entry.recv {
+            border-color: rgba(90, 163, 255, 0.15);
+            background: rgba(90, 163, 255, 0.04);
+        }
+
+        .frame-entry.connect {
+            border-color: rgba(192, 132, 252, 0.2);
+            background: rgba(192, 132, 252, 0.05);
+        }
+
+        .frame-entry.sys {
+            color: var(--muted);
+        }
+
+        .fe-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .fe-time {
+            font-size: 10px;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        .fe-dir {
+            font-size: 10px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .fe-cmd {
+            font-size: 10px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .fe-cmd.SEND {
+            background: rgba(0, 229, 160, 0.15);
+            color: var(--accent);
+        }
+
+        .fe-cmd.SUBSCRIBE {
+            background: rgba(192, 132, 252, 0.15);
+            color: var(--purple);
+        }
+
+        .fe-cmd.CONNECT {
+            background: rgba(255, 154, 61, 0.15);
+            color: var(--orange);
+        }
+
+        .fe-cmd.MESSAGE {
+            background: rgba(90, 163, 255, 0.15);
+            color: var(--blue);
+        }
+
+        .fe-cmd.DISCONNECT {
+            background: rgba(255, 69, 69, 0.15);
+            color: var(--danger);
+        }
+
+        .fe-dest {
+            font-size: 10px;
+            color: var(--muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── 세션 목록 ── */
+        .session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            max-height: 110px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 8px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            font-size: 11px;
+        }
+
+        .session-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 5px var(--accent);
+        }
+
+        .session-name {
+            color: var(--accent2);
+            font-weight: 600;
+        }
+
+        .session-subs {
+            color: var(--muted);
+            font-size: 10px;
+            margin-left: auto;
+        }
+
+        /* ── 설명 ── */
+        .explanation {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            padding: 11px;
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .explanation strong {
+            color: var(--text);
+        }
+
+        .explanation .h {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .explanation code {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 10px;
+            color: var(--accent2);
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <span class="step-badge">Step 5</span>
+        <h1>STOMP WebSocket Chat</h1>
+        <div class="stomp-badge connecting" id="stompBadge">
+            <div class="stomp-dot"></div>
+            <span id="stompStatus">연결 중...</span>
+        </div>
+    </header>
+
+    <div class="layout">
+
+        <!-- ── 방 사이드바 ── -->
+        <div class="sidebar">
+            <div class="sidebar-title">채팅방</div>
+            <div id="roomList"></div>
+            <div class="name-input-wrap">
+                <label>닉네임</label>
+                <input type="text" id="senderInput" value="User1" placeholder="닉네임 입력">
+            </div>
+        </div>
+
+        <!-- ── 채팅 패널 ── -->
+        <div class="chat-panel">
+            <div class="chat-header">
+                <span id="currentRoomLabel" style="color:var(--muted)">방을 선택하세요</span>
+                <span class="sub-info" id="subInfo"></span>
+                <span class="member-label" id="memberLabel"></span>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="join-prompt" id="joinPrompt">
+                    <div class="icon">📨</div>
+                    <div>왼쪽에서 채팅방을 선택하세요</div>
+                    <div style="font-size:11px">STOMP SUBSCRIBE 프레임이 전송됩니다</div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <input type="text" id="messageInput" placeholder="메시지 입력..." maxlength="300" disabled>
+                <button id="sendBtn" onclick="sendChat()" disabled>전송</button>
+            </div>
+        </div>
+
+        <!-- ── 모니터링 패널 ── -->
+        <div class="monitor-panel">
+
+            <!-- 현재 STOMP 프레임 구조 시각화 -->
+            <div class="section">
+                <div class="section-title">STOMP 프레임 구조</div>
+                <div class="frame-viz" id="frameViz">
+                    <div class="frame-line">
+                        <span class="frame-key">COMMAND</span>
+                        <span class="frame-val highlight" id="fvCmd">CONNECT</span>
+                    </div>
+                    <div class="frame-line">
+                        <span class="frame-key">destination</span>
+                        <span class="frame-val" id="fvDest">—</span>
+                    </div>
+                    <div class="frame-line">
+                        <span class="frame-key">content-type</span>
+                        <span class="frame-val muted">application/json</span>
+                    </div>
+                    <div class="frame-sep"></div>
+                    <div class="frame-line">
+                        <span class="frame-key">body</span>
+                        <span class="frame-val muted" id="fvBody">{ sender, content }</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 통계 -->
+            <div class="section">
+                <div class="section-title">연결 통계</div>
+                <div class="stats-grid">
+                    <div class="stat-card green">
+                        <div class="stat-label">활성 세션</div>
+                        <div class="stat-value green" id="statActive">0</div>
+                        <div class="stat-sub">STOMP 연결 수</div>
+                    </div>
+                    <div class="stat-card blue">
+                        <div class="stat-label">전송 프레임</div>
+                        <div class="stat-value blue" id="statFrames">0</div>
+                        <div class="stat-sub">누적 SEND 수</div>
+                    </div>
+                    <div class="stat-card purple">
+                        <div class="stat-label">구독</div>
+                        <div class="stat-value purple" id="statSubs">0</div>
+                        <div class="stat-sub">활성 SUBSCRIBE 수</div>
+                    </div>
+                    <div class="stat-card orange">
+                        <div class="stat-label">채팅 메시지</div>
+                        <div class="stat-value orange" id="statMsgs">0</div>
+                        <div class="stat-sub">전송된 메시지</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 세션 목록 -->
+            <div class="section">
+                <div class="section-title">연결된 세션</div>
+                <div class="session-list" id="sessionList">
+                    <div style="font-size:11px;color:var(--muted)">연결 대기 중...</div>
+                </div>
+            </div>
+
+            <!-- 4단계 vs 5단계 비교 -->
+            <div class="section">
+                <div class="section-title">Raw WS vs STOMP 비교</div>
+                <table class="diff-table">
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>4단계 Raw WS</th>
+                            <th>5단계 STOMP</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="metric">메시지 라우팅</td>
+                            <td><span class="badge bad">switch(type)</span></td>
+                            <td><span class="badge good">@MessageMapping</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">브로드캐스트</td>
+                            <td><span class="badge bad">세션 순회</span></td>
+                            <td><span class="badge good">convertAndSend</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">방 멤버 추적</td>
+                            <td><span class="badge bad">sessionIds 집합</span></td>
+                            <td><span class="badge good">브로커 자동</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">Dead Connection</td>
+                            <td><span class="badge bad">스케줄러 직접</span></td>
+                            <td><span class="badge good">Heartbeat 설정</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">프로토콜 설계</td>
+                            <td><span class="badge bad">WsMessage 직접</span></td>
+                            <td><span class="badge good">STOMP 표준</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">SockJS 폴백</td>
+                            <td><span class="badge bad">없음</span></td>
+                            <td><span class="badge good">withSockJS()</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">1:1 메시지</td>
+                            <td><span class="badge mid">직접 구현</span></td>
+                            <td><span class="badge good">convertAndSendToUser</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- STOMP 프레임 로그 -->
+            <div class="section">
+                <div class="section-title">STOMP 프레임 로그</div>
+                <div class="frame-log" id="frameLog"></div>
+            </div>
+
+            <!-- 설명 -->
+            <div class="section">
+                <div class="section-title">STOMP가 해결한 것</div>
+                <div class="explanation">
+                    <strong>방 입장 코드 비교</strong><br><br>
+                    <span style="color:var(--danger)">4단계:</span>
+                    <code>joinRoom()</code> — 6단계 수작업<br>
+                    (퇴장→등록→JOINED전송→브로드캐스트...)<br><br>
+                    <span class="h">5단계:</span>
+                    <code>stompClient.subscribe("/topic/chat/room-1")</code><br>
+                    → 브로커가 구독자 목록 자동 관리<br>
+                    → <code>@EventListener(SessionSubscribeEvent)</code><br>
+                    → 알림만 보내면 끝<br><br>
+                    <strong>브로드캐스트 코드 비교</strong><br><br>
+                    <span style="color:var(--danger)">4단계:</span> 30줄 세션 순회 메서드<br><br>
+                    <span class="h">5단계:</span><br>
+                    <code>messagingTemplate.convertAndSend(</code><br>
+                    <code>&nbsp;&nbsp;"/topic/chat/" + roomId, msg)</code><br><br>
+                    <strong>WsMessage 봉투 제거</strong><br>
+                    4단계의 <code>type</code> 필드, <code>switch</code> 분기,<br>
+                    <code>objectMapper.writeValueAsString()</code>가<br>
+                    전부 사라졌다.
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const WS_URL = 'http://localhost:8080/ws/chat';
+        const API = 'http://localhost:8080/api';
+
+        let stompClient = null;
+        let currentRoom = null;
+        let currentSub = null;  // 현재 방 구독 객체
+        let historySub = null;  // 이력 수신 구독
+        let roomListSub = null;  // 방 목록 수신 구독
+        let myName = 'User1';
+        let frameCount = 0;
+        let msgCount = 0;
+        let subCount = 0;
+
+        window.addEventListener('load', () => {
+            document.getElementById('senderInput').addEventListener('input', e => {
+                myName = e.target.value || '익명';
+            });
+            document.getElementById('messageInput').addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+            });
+            connect();
+            setInterval(refreshStats, 3000);
+        });
+
+        // ── STOMP 연결 ─────────────────────────────────────────────────────────────
+        function connect() {
+            setStompState('connecting');
+            addFrameLog('connect', 'CONNECT', '/ws/chat', '닉네임: ' + myName);
+
+            /**
+             * [4단계 vs 5단계 클라이언트 코드 비교]
+             *
+             * 4단계:
+             *   ws = new WebSocket('ws://localhost:8080/ws/chat');
+             *   ws.onmessage = (e) => { const msg = JSON.parse(e.data); switch(msg.type) {...} }
+             *
+             * 5단계:
+             *   SockJS + STOMP 클라이언트 사용
+             *   stompClient.connect() → 연결
+             *   stompClient.subscribe(destination, callback) → 구독
+             *   stompClient.send(destination, headers, body) → 전송
+             *   switch 분기 없음 — destination별 콜백으로 자동 분리
+             */
+            const socket = new SockJS(WS_URL);
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // STOMP 내부 디버그 로그 비활성화
+
+            // STOMP CONNECT 프레임 전송
+            // 'sender' 헤더: StompChannelInterceptor에서 추출해 SessionRegistry에 등록
+            stompClient.connect(
+                { sender: myName },  // CONNECT 헤더
+                onConnected,
+                onError
+            );
+        }
+
+        function onConnected() {
+            setStompState('connected');
+            addFrameLog('connect', 'CONNECTED', '—', '브로커 연결 수립');
+
+            // 방 목록 구독 (/user/queue/room-list)
+            // 4단계에서 sendRoomList()가 직접 세션에 전송하던 것을
+            // 5단계에서는 /user 채널을 통해 특정 사용자에게만 전달한다
+            roomListSub = stompClient.subscribe('/user/queue/room-list', (frame) => {
+                const rooms = JSON.parse(frame.body);
+                renderRoomList(rooms);
+                addFrameLog('recv', 'MESSAGE', '/user/queue/room-list', `방 ${rooms.length}개 수신`);
+            });
+
+            // 구독 완료 후 방 목록 요청 (Race Condition 방지)
+            stompClient.send('/app/rooms', {}, '');
+            addFrameLog('send', 'SEND', '/app/rooms', '방 목록 요청');
+
+            subCount++;
+            refreshStats();
+        }
+
+        function onError(err) {
+            setStompState('error');
+            addFrameLog('sys', 'ERROR', '—', '연결 오류. 3초 후 재시도...');
+            setTimeout(connect, 3000);
+        }
+
+        // ── 방 입장 ────────────────────────────────────────────────────────────────
+        function joinRoom(roomId, roomName) {
+            if (!stompClient || !stompClient.connected) return;
+
+            // 이전 방 구독 해제
+            if (currentSub) {
+                currentSub.unsubscribe();
+                addFrameLog('send', 'UNSUBSCRIBE', '/topic/chat/' + currentRoom, '이전 방 구독 해제');
+            }
+
+            currentRoom = roomId;
+
+            /**
+             * [핵심 차이: 방 입장]
+             *
+             * 4단계:
+             *   ws.send(JSON.stringify({ type:'JOIN', payload:{ roomId, sender } }))
+             *   → 서버에서 switch('JOIN') → joinRoom() 6단계 처리
+             *
+             * 5단계:
+             *   stompClient.subscribe('/topic/chat/' + roomId, callback)
+             *   → 구독 자체가 "입장" 의미
+             *   → 서버의 @EventListener(SessionSubscribeEvent)가 감지
+             *   → 브로커가 구독자 목록 자동 관리
+             */
+            currentSub = stompClient.subscribe('/topic/chat/' + roomId, (frame) => {
+                const data = JSON.parse(frame.body);
+                frameCount++;
+
+                if (data.eventType) {
+                    // SystemMessage (JOINED / LEFT)
+                    renderSystemMsg(data.text);
+                    addFrameLog('recv', 'MESSAGE', '/topic/chat/' + roomId, data.text);
+                } else if (data.sender) {
+                    // ChatMessage
+                    renderMessage(data);
+                    msgCount++;
+                    addFrameLog('recv', 'MESSAGE', '/topic/chat/' + roomId,
+                        `${data.sender}: ${data.content.substring(0, 30)}`);
+                }
+                refreshStats();
+            });
+
+            subCount++;
+            addFrameLog('send', 'SUBSCRIBE', '/topic/chat/' + roomId, '방 구독 = 입장');
+            updateFrameViz('SUBSCRIBE', '/topic/chat/' + roomId, '—');
+
+            // 이력 구독 (나에게만 오는 최근 메시지)
+            if (historySub) historySub.unsubscribe();
+            historySub = stompClient.subscribe('/user/queue/history', (frame) => {
+                const messages = JSON.parse(frame.body);
+                const container = document.getElementById('chatMessages');
+                container.innerHTML = '';
+                messages.forEach(renderMessage);
+                addFrameLog('recv', 'MESSAGE', '/user/queue/history', `이력 ${messages.length}개`);
+            });
+
+            // UI 업데이트
+            document.getElementById('currentRoomLabel').textContent = '# ' + roomName;
+            document.getElementById('currentRoomLabel').style.color = 'var(--accent2)';
+            document.getElementById('subInfo').textContent = 'SUBSCRIBE /topic/chat/' + roomId;
+            document.getElementById('messageInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+
+            document.querySelectorAll('.room-item').forEach(el => el.classList.remove('active'));
+            document.getElementById('room-' + roomId)?.classList.add('active');
+        }
+
+        // ── 메시지 전송 ───────────────────────────────────────────────────────────
+        function sendChat() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content || !currentRoom || !stompClient?.connected) return;
+            input.value = '';
+            input.focus();
+
+            /**
+             * [핵심 차이: 메시지 전송]
+             *
+             * 4단계:
+             *   ws.send(JSON.stringify({ type:'CHAT', payload:{ content } }))
+             *   → 서버에서 switch('CHAT') → handleChat()
+             *
+             * 5단계:
+             *   stompClient.send('/app/chat/' + roomId, {}, JSON.stringify({ sender, content }))
+             *   → destination이 타입 역할. switch 분기 없음.
+             *   → @MessageMapping('/chat/{roomId}') 가 자동 라우팅
+             */
+            const body = JSON.stringify({ sender: myName, content });
+            stompClient.send('/app/chat/' + currentRoom, {}, body);
+            frameCount++;
+
+            addFrameLog('send', 'SEND', '/app/chat/' + currentRoom, content.substring(0, 40));
+            updateFrameViz('SEND', '/app/chat/' + currentRoom, `{ sender: "${myName}", content: "${content.substring(0, 20)}" }`);
+            refreshStats();
+        }
+
+        // ── 렌더링 ─────────────────────────────────────────────────────────────────
+        function renderRoomList(rooms) {
+            const container = document.getElementById('roomList');
+            container.innerHTML = '';
+            rooms.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'room-item' + (currentRoom === r.roomId ? ' active' : '');
+                div.id = 'room-' + r.roomId;
+                div.innerHTML = `
+        <div class="room-name"># ${r.name}</div>
+        <div class="room-dest"><span class="dest-tag">/topic</span>/chat/${r.roomId}</div>
+      `;
+                div.onclick = () => joinRoom(r.roomId, r.name);
+                container.appendChild(div);
+            });
+        }
+
+        function renderMessage(msg) {
+            const container = document.getElementById('chatMessages');
+            const prompt = document.getElementById('joinPrompt');
+            if (prompt) prompt.remove();
+
+            const isMine = msg.sender === myName;
+            const div = document.createElement('div');
+            div.className = `msg ${isMine ? 'mine' : ''}`;
+            div.innerHTML = `
+      <div class="msg-meta">
+        <span class="sender">${escapeHtml(msg.sender)}</span>
+        <span style="color:var(--border);font-size:10px">#${msg.id}</span>
+        <span>${msg.timestamp}</span>
+      </div>
+      <div class="msg-bubble">${escapeHtml(msg.content)}</div>
+    `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function renderSystemMsg(text) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = 'system-msg';
+            div.textContent = text;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ── UI 상태 ────────────────────────────────────────────────────────────────
+        function setStompState(state) {
+            const badge = document.getElementById('stompBadge');
+            const status = document.getElementById('stompStatus');
+            badge.className = `stomp-badge ${state}`;
+            const labels = { connected: 'STOMP 연결됨', connecting: '연결 중...', error: '재연결 중...' };
+            status.textContent = labels[state] || state;
+        }
+
+        function updateFrameViz(cmd, dest, body) {
+            document.getElementById('fvCmd').textContent = cmd;
+            document.getElementById('fvDest').textContent = dest;
+            document.getElementById('fvBody').textContent = body;
+        }
+
+        // ── 통계 갱신 ─────────────────────────────────────────────────────────────
+        async function refreshStats() {
+            document.getElementById('statFrames').textContent = frameCount;
+            document.getElementById('statMsgs').textContent = msgCount;
+            document.getElementById('statSubs').textContent = subCount;
+
+            try {
+                const res = await fetch(`${API}/stats`);
+                const s = await res.json();
+                document.getElementById('statActive').textContent = s.activeConnections;
+
+                const sl = document.getElementById('sessionList');
+                if (s.sessions && s.sessions.length > 0) {
+                    sl.innerHTML = s.sessions.map(sess => `
+          <div class="session-item">
+            <div class="session-dot"></div>
+            <span class="session-name">${escapeHtml(sess.sender)}</span>
+            <span class="session-subs">${sess.subscriptions?.length ?? 0}개 구독</span>
+          </div>
+        `).join('');
+                } else {
+                    sl.innerHTML = '<div style="font-size:11px;color:var(--muted)">연결된 세션 없음</div>';
+                }
+            } catch (e) { /* 무시 */ }
+        }
+
+        // ── STOMP 프레임 로그 ─────────────────────────────────────────────────────
+        function addFrameLog(dir, cmd, dest, summary) {
+            const log = document.getElementById('frameLog');
+            const entry = document.createElement('div');
+            const time = new Date().toTimeString().slice(0, 8);
+
+            const dirLabel = dir === 'send' ? '↑ TX' : dir === 'recv' ? '↓ RX' : '· SYS';
+            const dirColor = dir === 'send' ? 'var(--accent)' : dir === 'recv' ? 'var(--blue)' : 'var(--muted)';
+
+            entry.className = `frame-entry ${dir}`;
+            entry.innerHTML = `
+      <div class="fe-row">
+        <span class="fe-time">${time}</span>
+        <span class="fe-dir" style="color:${dirColor}">${dirLabel}</span>
+        <span class="fe-cmd ${cmd}">${cmd}</span>
+        <span class="fe-dest">${escapeHtml(dest)}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);padding-left:4px">${escapeHtml(summary)}</div>
+    `;
+            log.insertBefore(entry, log.firstChild);
+            while (log.children.length > 80) log.removeChild(log.lastChild);
+        }
+
+        function escapeHtml(str) {
+            const d = document.createElement('div');
+            d.appendChild(document.createTextNode(String(str)));
+            return d.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
