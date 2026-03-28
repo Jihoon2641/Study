@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 3 — SSE Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080c14;
+            --surface: #0d1220;
+            --surface2: #131a2e;
+            --border: #1e2d4a;
+            --accent: #5aa3ff;
+            --accent2: #7ec8ff;
+            --good: #3dff9a;
+            --warn: #ffdd57;
+            --danger: #ff4545;
+            --purple: #b57aff;
+            --text: #d8e8ff;
+            --muted: #4a6a8a;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Syne', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--mono);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .step-badge {
+            font-family: var(--sans);
+            font-weight: 800;
+            font-size: 11px;
+            letter-spacing: 0.15em;
+            background: var(--accent);
+            color: #040810;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        header h1 {
+            font-family: var(--sans);
+            font-size: 18px;
+            font-weight: 700;
+            flex: 1;
+        }
+
+        .sse-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .sse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        .sse-dot.connected {
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+            animation: none;
+        }
+
+        .sse-dot.connecting {
+            background: var(--warn);
+            animation: breathe 1s ease-in-out infinite;
+        }
+
+        .sse-dot.error {
+            background: var(--danger);
+            animation: none;
+        }
+
+        @keyframes breathe {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* ── 레이아웃 ── */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            height: calc(100vh - 57px);
+        }
+
+        /* ── 채팅 패널 ── */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .msg {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            animation: msgIn 0.2s ease-out;
+        }
+
+        @keyframes msgIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .msg.mine {
+            align-items: flex-end;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: var(--muted);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .msg-meta .sender {
+            color: var(--accent2);
+            font-weight: 500;
+        }
+
+        .msg-bubble {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            word-break: break-word;
+        }
+
+        .msg.mine .msg-bubble {
+            background: #0a1428;
+            border-color: #1e3a6e;
+            color: #a8c8ff;
+        }
+
+        .system-msg {
+            text-align: center;
+            font-size: 11px;
+            color: var(--muted);
+            padding: 4px 12px;
+            background: rgba(90, 163, 255, 0.05);
+            border-radius: 4px;
+            border: 1px solid rgba(90, 163, 255, 0.1);
+            align-self: center;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .empty-state .icon {
+            font-size: 32px;
+            opacity: 0.3;
+        }
+
+        /* ── 입력 ── */
+        .chat-input-area {
+            border-top: 1px solid var(--border);
+            padding: 16px 20px;
+            background: var(--surface);
+        }
+
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .name-row label {
+            font-size: 11px;
+            color: var(--muted);
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        input[type="text"] {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 13px;
+            padding: 8px 12px;
+            outline: none;
+            transition: border-color 0.2s;
+            width: 100%;
+        }
+
+        input[type="text"]:focus {
+            border-color: #1e3a6e;
+        }
+
+        .send-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .send-row input {
+            flex: 1;
+        }
+
+        button {
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #040810;
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 20px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        button.secondary {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+        }
+
+        /* ── 모니터링 패널 ── */
+        .monitor-panel {
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            background: var(--surface);
+        }
+
+        .monitor-panel::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .monitor-panel::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .section {
+            border-bottom: 1px solid var(--border);
+            padding: 16px;
+        }
+
+        .section-title {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        /* ── SSE 스트림 시각화 ── */
+        .stream-viz {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stream-pipe {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            margin: 8px 0;
+        }
+
+        .stream-node {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--muted);
+            background: var(--surface);
+            flex-shrink: 0;
+            transition: all 0.3s;
+        }
+
+        .stream-node.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(90, 163, 255, 0.08);
+        }
+
+        .stream-line {
+            flex: 1;
+            height: 2px;
+            background: var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 흐르는 데이터 애니메이션 */
+        .stream-line.flowing::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            animation: streamFlow 1s linear infinite;
+        }
+
+        .stream-line.pulse::after {
+            animation: streamPulse 0.4s ease-out forwards;
+        }
+
+        @keyframes streamFlow {
+            to {
+                left: 100%;
+            }
+        }
+
+        @keyframes streamPulse {
+            0% {
+                left: -100%;
+                opacity: 1;
+            }
+
+            100% {
+                left: 100%;
+                opacity: 0;
+            }
+        }
+
+        .stream-label {
+            font-size: 10px;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stream-label .connected-tag {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* ── 통계 카드 ── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .stat-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            transition: border-color 0.3s;
+        }
+
+        .stat-card.blue {
+            border-color: rgba(90, 163, 255, 0.3);
+        }
+
+        .stat-card.green {
+            border-color: rgba(61, 255, 154, 0.25);
+        }
+
+        .stat-card.warn {
+            border-color: rgba(255, 221, 87, 0.2);
+        }
+
+        .stat-card.purple {
+            border-color: rgba(181, 122, 255, 0.25);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 4px;
+            line-height: 1.3;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-value.blue {
+            color: var(--accent);
+        }
+
+        .stat-value.green {
+            color: var(--good);
+        }
+
+        .stat-value.yellow {
+            color: var(--warn);
+        }
+
+        .stat-value.purple {
+            color: var(--purple);
+        }
+
+        .stat-sub {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        /* ── 연결된 클라이언트 목록 ── */
+        .client-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 130px;
+            overflow-y: auto;
+        }
+
+        .client-list::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .client-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+        }
+
+        .client-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 11px;
+            animation: clientIn 0.2s ease-out;
+        }
+
+        @keyframes clientIn {
+            from {
+                opacity: 0;
+                transform: translateX(-6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .client-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 6px var(--accent);
+            flex-shrink: 0;
+        }
+
+        .client-id {
+            color: var(--accent2);
+            font-weight: 600;
+        }
+
+        .client-since {
+            color: var(--muted);
+            margin-left: auto;
+            font-size: 10px;
+        }
+
+        /* ── 3단계 비교 ── */
+        .compare-table {
+            width: 100%;
+            font-size: 11px;
+            border-collapse: collapse;
+        }
+
+        .compare-table th {
+            color: var(--muted);
+            font-weight: 400;
+            font-size: 10px;
+            text-align: left;
+            padding: 4px 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .compare-table td {
+            padding: 6px 6px;
+            border-bottom: 1px solid rgba(30, 45, 74, 0.5);
+            vertical-align: middle;
+        }
+
+        .compare-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .compare-table .metric {
+            color: var(--muted);
+            font-size: 10px;
+        }
+
+        .compare-table .s1 {
+            color: var(--danger);
+        }
+
+        .compare-table .s2 {
+            color: var(--warn);
+        }
+
+        .compare-table .s3 {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+
+        .badge.bad {
+            background: rgba(255, 69, 69, 0.15);
+            color: var(--danger);
+        }
+
+        .badge.mid {
+            background: rgba(255, 221, 87, 0.15);
+            color: var(--warn);
+        }
+
+        .badge.good {
+            background: rgba(90, 163, 255, 0.15);
+            color: var(--accent);
+        }
+
+        /* ── 이벤트 로그 ── */
+        .log-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 11px;
+        }
+
+        .log-list::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        .log-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 4px 8px;
+            border-radius: 4px;
+            animation: logIn 0.15s ease-out;
+            line-height: 1.4;
+        }
+
+        @keyframes logIn {
+            from {
+                opacity: 0;
+                transform: translateX(-4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry.connect {
+            color: var(--accent);
+            background: rgba(90, 163, 255, 0.05);
+        }
+
+        .log-entry.message {
+            color: var(--good);
+            background: rgba(61, 255, 154, 0.05);
+        }
+
+        .log-entry.heartbeat {
+            color: var(--muted);
+        }
+
+        .log-entry.disconnect {
+            color: var(--danger);
+            background: rgba(255, 69, 69, 0.05);
+        }
+
+        .log-entry.sent {
+            color: #ff9a3d;
+            background: rgba(255, 154, 61, 0.05);
+        }
+
+        .log-time {
+            opacity: 0.5;
+            flex-shrink: 0;
+        }
+
+        .log-type {
+            font-weight: 700;
+            flex-shrink: 0;
+            width: 16px;
+        }
+
+        .log-text {
+            flex: 1;
+        }
+
+        /* ── 설명 ── */
+        .explanation {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 0 6px 6px 0;
+            padding: 12px;
+            font-size: 11px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .explanation strong {
+            color: var(--text);
+        }
+
+        .explanation .highlight {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .explanation .bad {
+            color: var(--danger);
+        }
+
+        .explanation code {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 10px;
+            color: var(--accent2);
+        }
+
+        /* ── Heartbeat 타이머 ── */
+        .hb-timer {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        .hb-bar-track {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .hb-bar-fill {
+            height: 100%;
+            background: var(--purple);
+            border-radius: 2px;
+            transition: width 1s linear;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <span class="step-badge">Step 3</span>
+        <h1>SSE Chat</h1>
+        <div class="sse-status">
+            <div class="sse-dot connecting" id="sseDot"></div>
+            <span id="sseStatus">연결 중...</span>
+        </div>
+    </header>
+
+    <div class="layout">
+
+        <!-- ── 채팅 패널 ── -->
+        <div class="chat-panel">
+            <div class="chat-messages" id="chatMessages">
+                <div class="empty-state" id="emptyState">
+                    <div class="icon">📡</div>
+                    <div>SSE 연결 수립 중...</div>
+                    <div style="font-size:11px">연결되면 메시지가 자동으로 수신됩니다</div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <div class="name-row">
+                    <label>이름</label>
+                    <input type="text" id="senderInput" value="User1" style="max-width:200px">
+                </div>
+                <div class="send-row">
+                    <input type="text" id="messageInput" placeholder="메시지를 입력하세요..." maxlength="200">
+                    <button onclick="sendMessage()">전송</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── 모니터링 패널 ── -->
+        <div class="monitor-panel">
+
+            <!-- SSE 스트림 시각화 -->
+            <div class="section">
+                <div class="section-title">SSE 스트림 상태</div>
+                <div class="stream-viz">
+                    <div class="stream-pipe">
+                        <div class="stream-node" id="nodeClient">Client</div>
+                        <div class="stream-line" id="streamLine"></div>
+                        <div class="stream-node" id="nodeServer">Server</div>
+                    </div>
+                    <div class="stream-label">
+                        <span id="streamLeft">text/event-stream</span>
+                        <span id="streamCenter" class="connected-tag">—</span>
+                        <span id="streamRight">단방향 Push</span>
+                    </div>
+                </div>
+                <div class="hb-timer">
+                    <span style="flex-shrink:0; font-size:10px;">Heartbeat</span>
+                    <div class="hb-bar-track">
+                        <div class="hb-bar-fill" id="hbFill" style="width:100%"></div>
+                    </div>
+                    <span id="hbLabel" style="font-size:10px; min-width:32px; text-align:right;">15s</span>
+                </div>
+            </div>
+
+            <!-- 통계 -->
+            <div class="section">
+                <div class="section-title">연결 통계</div>
+                <div class="stats-grid">
+                    <div class="stat-card blue">
+                        <div class="stat-label">활성 스트림</div>
+                        <div class="stat-value blue" id="statActive">0</div>
+                        <div class="stat-sub">현재 연결 수</div>
+                    </div>
+                    <div class="stat-card green">
+                        <div class="stat-label">전송된 이벤트</div>
+                        <div class="stat-value green" id="statEvents">0</div>
+                        <div class="stat-sub">메시지 Push 횟수</div>
+                    </div>
+                    <div class="stat-card warn">
+                        <div class="stat-label">총 연결 수립</div>
+                        <div class="stat-value yellow" id="statConns">0</div>
+                        <div class="stat-sub">재연결 포함</div>
+                    </div>
+                    <div class="stat-card purple">
+                        <div class="stat-label">Heartbeat</div>
+                        <div class="stat-value purple" id="statHb">0</div>
+                        <div class="stat-sub">연결 유지 ping</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 연결된 클라이언트 -->
+            <div class="section">
+                <div class="section-title">연결된 클라이언트</div>
+                <div class="client-list" id="clientList">
+                    <div style="font-size:11px; color:var(--muted); padding:4px 0;">연결 중...</div>
+                </div>
+            </div>
+
+            <!-- 3단계 비교표 -->
+            <div class="section">
+                <div class="section-title">1 · 2 · 3단계 비교</div>
+                <table class="compare-table">
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>S1 Short</th>
+                            <th>S2 Long</th>
+                            <th>S3 SSE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="metric">연결 방식</td>
+                            <td class="s1"><span class="badge bad">매 요청</span></td>
+                            <td class="s2"><span class="badge mid">30s 유지</span></td>
+                            <td class="s3"><span class="badge good">영구 유지</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">빈 응답</td>
+                            <td class="s1"><span class="badge bad">매우 많음</span></td>
+                            <td class="s2"><span class="badge mid">타임아웃만</span></td>
+                            <td class="s3"><span class="badge good">없음</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">메시지 지연</td>
+                            <td class="s1"><span class="badge bad">최대 1s</span></td>
+                            <td class="s2"><span class="badge good">~0ms</span></td>
+                            <td class="s3"><span class="badge good">~0ms</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">서버→클라이언트</td>
+                            <td class="s1"><span class="badge bad">폴링 필요</span></td>
+                            <td class="s2"><span class="badge mid">응답 Push</span></td>
+                            <td class="s3"><span class="badge good">스트리밍</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">클라이언트→서버</td>
+                            <td class="s1"><span class="badge good">HTTP POST</span></td>
+                            <td class="s2"><span class="badge good">HTTP POST</span></td>
+                            <td class="s3"><span class="badge mid">HTTP POST</span></td>
+                        </tr>
+                        <tr>
+                            <td class="metric">재연결</td>
+                            <td class="s1">—</td>
+                            <td class="s2"><span class="badge bad">수동</span></td>
+                            <td class="s3"><span class="badge good">브라우저 자동</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 이벤트 로그 -->
+            <div class="section">
+                <div class="section-title">SSE 이벤트 로그</div>
+                <div class="log-list" id="logList"></div>
+            </div>
+
+            <!-- 설명 -->
+            <div class="section">
+                <div class="section-title">핵심 차이</div>
+                <div class="explanation">
+                    <strong>SSE의 핵심: 연결을 끊지 않는다</strong><br><br>
+                    <code>Content-Type: text/event-stream</code><br>
+                    브라우저가 이 헤더를 보면 스트리밍 모드로 전환합니다.<br>
+                    서버는 연결을 유지한 채 언제든 이벤트를 보낼 수 있습니다.<br><br>
+                    <span class="highlight">Long Polling vs SSE 핵심 차이:</span><br>
+                    Long Polling: 응답 → 연결 종료 → 재연결<br>
+                    SSE: 응답 → <span class="highlight">연결 유지</span> → 다음 응답 → 연결 유지<br><br>
+                    <strong>브라우저 자동 재연결:</strong><br>
+                    <code>EventSource</code> API는 연결이 끊기면<br>
+                    <span class="highlight">자동으로 재연결</span>하고 <code>Last-Event-ID</code>를<br>
+                    헤더로 전송해 놓친 메시지를 복구합니다.<br><br>
+                    <strong>여전히 남은 한계:</strong><br>
+                    → <span class="bad">서버 → 클라이언트 단방향</span><br>
+                    → 클라이언트 송신은 여전히 HTTP POST<br><br>
+                    <strong>다음:</strong> Raw WebSocket으로 완전한 양방향 통신
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:8080/api';
+        let myName = 'User1';
+        let eventSource = null;
+        let hbCountdown = 15;
+        let hbTimer = null;
+        let isFirstLoad = true;
+
+        window.addEventListener('load', () => {
+            document.getElementById('senderInput').addEventListener('input', e => {
+                myName = e.target.value || '익명';
+            });
+            document.getElementById('messageInput').addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+            });
+
+            connectSSE();
+            setInterval(refreshStats, 3000);
+            startHbTimer();
+        });
+
+        // ── SSE 연결 ──────────────────────────────────────────────
+        function connectSSE() {
+            setStatus('connecting');
+            addLog('connect', 'EventSource 연결 시도...');
+
+            /**
+             * [SSE 핵심] EventSource API
+             *
+             * Short Polling:  setInterval(() => fetch(...), 1000)
+             * Long Polling:   while(true) { await fetch(...) }
+             * SSE:            new EventSource(url)  ← 브라우저가 모든 것을 관리
+             *                 연결 유지, 재연결, Last-Event-ID 전송까지 자동
+             */
+            eventSource = new EventSource(`${API}/subscribe`);
+
+            // 연결 수립 이벤트
+            eventSource.addEventListener('connected', e => {
+                const data = JSON.parse(e.data);
+                setStatus('connected');
+                addLog('connect', `연결 수립 완료 (clientId: ${data.clientId})`);
+                setStreamState('flowing');
+
+                if (isFirstLoad) {
+                    isFirstLoad = false;
+                    const emptyState = document.getElementById('emptyState');
+                    if (emptyState) emptyState.remove();
+                    addSystemMsg('SSE 연결 수립. 새 메시지를 실시간으로 수신합니다.');
+                }
+
+                refreshStats();
+            });
+
+            // 메시지 이벤트 수신
+            eventSource.addEventListener('message', e => {
+                const msg = JSON.parse(e.data);
+                renderMessage(msg);
+                setStreamState('pulse');
+                addLog('message', `메시지 수신 #${msg.id} from ${msg.sender}`);
+                resetHbTimer();
+            });
+
+            // 연결 오류 (브라우저가 자동 재연결 시도)
+            eventSource.onerror = () => {
+                setStatus('error');
+                setStreamState('idle');
+                addLog('disconnect', '연결 끊김 → 브라우저가 자동 재연결 중...');
+            };
+
+            // readyState 변화 감지
+            eventSource.onopen = () => {
+                setStatus('connected');
+                addLog('connect', '스트림 재연결됨');
+            };
+        }
+
+        // ── 메시지 렌더링 ────────────────────────────────────────
+        function renderMessage(msg) {
+            const container = document.getElementById('chatMessages');
+            const isMine = msg.sender === myName;
+            const div = document.createElement('div');
+            div.className = `msg ${isMine ? 'mine' : ''}`;
+            div.innerHTML = `
+      <div class="msg-meta">
+        <span class="sender">${escapeHtml(msg.sender)}</span>
+        <span style="color:var(--border); font-size:10px;">#${msg.id}</span>
+        <span>${msg.timestamp}</span>
+      </div>
+      <div class="msg-bubble">${escapeHtml(msg.content)}</div>
+    `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function addSystemMsg(text) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = 'system-msg';
+            div.textContent = text;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // ── 메시지 전송 ─────────────────────────────────────────
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content) return;
+            input.value = '';
+            input.focus();
+
+            try {
+                await fetch(`${API}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sender: myName, content })
+                });
+                addLog('sent', `전송: "${content.substring(0, 30)}${content.length > 30 ? '...' : ''}"`);
+            } catch (err) {
+                addLog('disconnect', '전송 실패: ' + err.message);
+            }
+        }
+
+        // ── SSE 스트림 상태 UI ────────────────────────────────────
+        function setStatus(state) {
+            const dot = document.getElementById('sseDot');
+            const status = document.getElementById('sseStatus');
+            dot.className = `sse-dot ${state}`;
+
+            const labels = {
+                connecting: '연결 중...',
+                connected: 'SSE 스트림 활성',
+                error: '재연결 중...'
+            };
+            status.textContent = labels[state] || state;
+        }
+
+        function setStreamState(state) {
+            const line = document.getElementById('streamLine');
+            const center = document.getElementById('streamCenter');
+            const nodeClient = document.getElementById('nodeClient');
+            const nodeServer = document.getElementById('nodeServer');
+
+            if (state === 'flowing') {
+                line.className = 'stream-line flowing';
+                center.textContent = '연결됨';
+                nodeClient.className = 'stream-node active';
+                nodeServer.className = 'stream-node active';
+            } else if (state === 'pulse') {
+                line.className = 'stream-line pulse';
+                center.textContent = '이벤트 Push!';
+                setTimeout(() => {
+                    line.className = 'stream-line flowing';
+                    center.textContent = '연결됨';
+                }, 600);
+            } else {
+                line.className = 'stream-line';
+                center.textContent = '끊김';
+                nodeClient.className = 'stream-node';
+                nodeServer.className = 'stream-node';
+            }
+        }
+
+        // ── Heartbeat 타이머 UI ──────────────────────────────────
+        function startHbTimer() {
+            hbTimer = setInterval(() => {
+                hbCountdown--;
+                if (hbCountdown <= 0) {
+                    hbCountdown = 15;
+                    addLog('heartbeat', 'Heartbeat 수신 (연결 유지)');
+                    refreshStats();
+                }
+                const pct = (hbCountdown / 15) * 100;
+                document.getElementById('hbFill').style.width = pct + '%';
+                document.getElementById('hbLabel').textContent = hbCountdown + 's';
+            }, 1000);
+        }
+
+        function resetHbTimer() {
+            hbCountdown = 15;
+        }
+
+        // ── 통계 갱신 ────────────────────────────────────────────
+        async function refreshStats() {
+            try {
+                const res = await fetch(`${API}/stats`);
+                const s = await res.json();
+
+                document.getElementById('statActive').textContent = s.activeStreams;
+                document.getElementById('statEvents').textContent = s.messageEventsSent;
+                document.getElementById('statConns').textContent = s.totalConnections;
+                document.getElementById('statHb').textContent = s.heartbeatsSent;
+
+                // 클라이언트 목록 갱신
+                const clientList = document.getElementById('clientList');
+                if (s.clients && s.clients.length > 0) {
+                    clientList.innerHTML = s.clients.map(c => `
+          <div class="client-item">
+            <div class="client-dot"></div>
+            <span class="client-id">${c.clientId}</span>
+            <span style="color:var(--muted); font-size:10px;">lastId: ${c.lastEventId}</span>
+            <span class="client-since">${c.connectedAt}</span>
+          </div>
+        `).join('');
+                } else {
+                    clientList.innerHTML = '<div style="font-size:11px; color:var(--muted);">연결된 클라이언트 없음</div>';
+                }
+            } catch (e) { /* 무시 */ }
+        }
+
+        // ── 이벤트 로그 ──────────────────────────────────────────
+        function addLog(type, text) {
+            const logList = document.getElementById('logList');
+            const entry = document.createElement('div');
+            const time = new Date().toTimeString().slice(0, 8);
+            const icons = { connect: '⟶', message: '▲', heartbeat: '♥', disconnect: '✕', sent: '↑' };
+
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `
+      <span class="log-time">${time}</span>
+      <span class="log-type">${icons[type] || '·'}</span>
+      <span class="log-text">${escapeHtml(text)}</span>
+    `;
+            logList.insertBefore(entry, logList.firstChild);
+            while (logList.children.length > 60) logList.removeChild(logList.lastChild);
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>
