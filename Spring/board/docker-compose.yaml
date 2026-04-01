@@ -1,0 +1,18 @@
+services:
+  board-db:
+    image: mysql:latest
+    container_name: board-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: board
+      MYSQL_USER: user1234
+      MYSQL_PASSWORD: board1234
+    ports:
+      - "3307:3306"
+    volumes:
+      - board-mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  board-mysql-data:
