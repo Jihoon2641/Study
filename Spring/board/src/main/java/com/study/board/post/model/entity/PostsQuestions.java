@@ -7,6 +7,8 @@ import java.util.List;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -17,14 +19,17 @@ import com.study.board.user.model.User;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "posts")
 @Getter
+@Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PostsQuestions {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false, length = 255)
@@ -83,5 +88,26 @@ public class PostsQuestions {
 
     @OneToMany(mappedBy = "parentPost")
     private List<PostsQuestions> answers = new ArrayList<>();
+
+    public static PostsQuestions of(Long userId, String title, String body, String tags, Integer postTypeId,
+            Long parentId) {
+        PostsQuestions entity = new PostsQuestions();
+
+        entity.title = title;
+        entity.body = body;
+        entity.acceptedAnswerId = null;
+        entity.answerCount = 0;
+        entity.commentCount = 0;
+        entity.creationDate = LocalDateTime.now();
+        entity.lastActivityDate = LocalDateTime.now();
+        entity.ownerUserId = userId;
+        entity.parentId = parentId;
+        entity.postTypeId = postTypeId;
+        entity.score = 0;
+        entity.tags = tags;
+        entity.viewCount = 0;
+
+        return entity;
+    }
 
 }
