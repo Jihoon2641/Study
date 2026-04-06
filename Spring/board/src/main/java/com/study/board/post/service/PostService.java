@@ -1,5 +1,9 @@
 package com.study.board.post.service;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -7,6 +11,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.study.board.post.model.dto.CreatePostRequest;
 import com.study.board.post.model.dto.CreatePostResponse;
+import com.study.board.post.model.dto.PostRequest;
+import com.study.board.post.model.dto.PostResponse;
 import com.study.board.post.model.entity.PostsQuestions;
 import com.study.board.post.repository.PostJpaRepository;
 import com.study.board.user.repository.UserJpaRepository;
@@ -56,20 +62,49 @@ public class PostService {
     }
 
     @Transactional
-    public void getPostIncreaseView(Long id) {
-        PostsQuestions post = postJpaRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "유효한 id가 아닙니다."));
+    public PostResponse getPostIncreaseView(Long id) {
+        int updated = postJpaRepository.incrementViewCount(id);
 
-        Integer viewCount = post.getViewCount() + 1;
-        post.setViewCount(viewCount);
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다.");
+        }
+
+        PostsQuestions post = postJpaRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다."));
+
+        return PostResponse.from(post);
     }
 
     @Transactional(readOnly = true)
-    public void getPost(Long id) {
+    public PostResponse getPost(Long id) {
         PostsQuestions post = postJpaRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "유효한 id가 아닙니다."));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다."));
 
-        return post;
+        return PostResponse.from(post);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PostResponse> getPosts(PostRequest req) {
+        Pageable pageable = PageRequest.of(
+                req.getPage(),
+                req.getSize(),
+                Sort.Direction.fromString(req.getDirection()), req.getSort());
+
+        Page<PostsQuestions> posts = postJpaRepository.findAll(
+                normalize(req.getQ()),
+                req.getPostTypeId(),
+                req.getOwnerUserId(),
+                normalize(req.getTag()),
+                pageable);
+
+        return posts.map(PostResponse::from);
+    }
+
+    private String normalize(String value) {
+        if (value == null)
+            return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
 }
