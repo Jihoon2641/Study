@@ -1,5 +1,7 @@
 package com.study.board.post.service;
 
+import java.time.LocalDateTime;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -13,6 +15,7 @@ import com.study.board.post.model.dto.CreatePostRequest;
 import com.study.board.post.model.dto.CreatePostResponse;
 import com.study.board.post.model.dto.PostRequest;
 import com.study.board.post.model.dto.PostResponse;
+import com.study.board.post.model.dto.UpdatePostRequest;
 import com.study.board.post.model.entity.PostsQuestions;
 import com.study.board.post.repository.PostJpaRepository;
 import com.study.board.user.repository.UserJpaRepository;
@@ -105,6 +108,23 @@ public class PostService {
             return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    @Transactional
+    public PostResponse updatePost(Long id, UpdatePostRequest req) {
+        PostsQuestions post = postJpaRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다."));
+
+        if (req.getTitle() != null)
+            post.setTitle(req.getTitle());
+        if (req.getBody() != null)
+            post.setBody(req.getBody());
+        if (req.getTags() != null)
+            post.setTags(req.getTags());
+
+        post.setLastActivityDate(LocalDateTime.now());
+
+        return PostResponse.from(post);
     }
 
 }
