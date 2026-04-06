@@ -127,4 +127,18 @@ public class PostService {
         return PostResponse.from(post);
     }
 
+    @Transactional
+    public PostResponse deletePost(Long id) {
+        PostsQuestions post = postJpaRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다."));
+
+        if (post.getPostTypeId() == 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "답변이 있는 게시물은 지울 수 없습니다.");
+        }
+
+        postJpaRepository.deleteById(id);
+
+        return PostResponse.from(post);
+    }
+
 }

@@ -3,6 +3,7 @@ package com.study.board.post.controller;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -64,5 +65,13 @@ public class PostController {
         PostResponse response = postService.updatePost(id, req);
 
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/posts/{id}")
+    public ResponseEntity<PostResponse> deletePost(@PathVariable Long id) {
+
+        PostResponse response = postService.deletePost(id);
+
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).body(response);
     }
 }
