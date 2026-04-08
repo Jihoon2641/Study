@@ -1,6 +1,7 @@
 package com.study.board.post.service;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -139,6 +140,28 @@ public class PostService {
         postJpaRepository.deleteById(id);
 
         return PostResponse.from(post);
+    }
+
+    @Transactional
+    public PostResponse acceptAnswer(Long id, Long answerPostId) {
+        PostsQuestions question = postJpaRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유효한 id가 아닙니다."));
+
+        if (question.getPostTypeId() != 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "질문 게시물만 채택 답변을 설정할 수 있습니다.");
+        }
+
+        PostsQuestions answer = postJpaRepository.findById(answerPostId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "유효한 answerPostId가 아닙니다."));
+
+        if (answer.getPostTypeId() != 2 || !Objects.equals(answer.getParentId(), question.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "해당 질문의 답변만 채택할 수 있습니다.");
+        }
+
+        question.setAcceptedAnswerId(answerPostId);
+        question.setLastActivityDate(LocalDateTime.now());
+
+        return PostResponse.from(question);
     }
 
 }

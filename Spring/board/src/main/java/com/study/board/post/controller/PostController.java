@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.study.board.post.model.dto.AcceptAnswerRequest;
 import com.study.board.post.model.dto.CreatePostRequest;
 import com.study.board.post.model.dto.CreatePostResponse;
 import com.study.board.post.model.dto.PostRequest;
@@ -73,5 +74,13 @@ public class PostController {
         PostResponse response = postService.deletePost(id);
 
         return ResponseEntity.status(HttpStatus.NO_CONTENT).body(response);
+    }
+
+    @PatchMapping("/posts/{id}/accept-answer")
+    public ResponseEntity<PostResponse> acceptAnswer(@PathVariable Long id,
+            @RequestBody @Valid AcceptAnswerRequest req) {
+        PostResponse response = postService.acceptAnswer(id, req.getAnswerPostId());
+
+        return ResponseEntity.ok(response);
     }
 }
