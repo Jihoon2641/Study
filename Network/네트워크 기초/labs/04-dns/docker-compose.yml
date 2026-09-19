@@ -1,0 +1,71 @@
+# 4장 실습: DNS 조회 경로, TTL, 캐시 계층, 부정 캐싱, ndots, 5초 지연
+#
+#   auth      10.53.0.10  권한 서버 (CoreDNS file 플러그인, 존: lab.internal / cluster.local)
+#   resolver  10.53.0.53  캐시 리졸버 (CoreDNS forward + cache)
+#   blackhole 10.53.0.99  질의를 받고 절대 응답하지 않는 "죽은" DNS 서버 (CoreDNS erratic)
+#   client    10.53.0.20  Debian(glibc) + dig/getent/tcpdump
+#   java      10.53.0.30  Temurin JDK 21: JVM InetAddress 캐시 관찰
+#
+# 10.53.0.0/24가 회사망·VPN과 겹치면 이 파일, Corefile.resolver, client/resolv/*.conf의 "10.53.0." 을 함께 바꾼다.
+name: ch04-lab
+
+networks:
+  dnsnet:
+    ipam:
+      config:
+        - subnet: 10.53.0.0/24
+          gateway: 10.53.0.1
+
+services:
+  auth:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./coredns/Corefile.auth:/etc/coredns/Corefile:ro
+      - ./zones:/zones:ro
+    networks:
+      dnsnet: { ipv4_address: 10.53.0.10 }
+
+  resolver:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./coredns/Corefile.resolver:/etc/coredns/Corefile:ro
+    networks:
+      dnsnet: { ipv4_address: 10.53.0.53 }
+
+  blackhole:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./coredns/Corefile.blackhole:/etc/coredns/Corefile:ro
+    networks:
+      dnsnet: { ipv4_address: 10.53.0.99 }
+
+  client:
+    build: ./client
+    image: ch04-client:1
+    # NET_RAW/NET_ADMIN: tcpdump
+    cap_add: [NET_ADMIN, NET_RAW]
+    init: true
+    # Docker 내장 DNS(127.0.0.11)가 컨테이너 이름 외의 질의를 이 서버로 넘긴다
+    dns: [10.53.0.53]
+    volumes:
+      - ./client/resolv:/lab/resolv:ro
+      # 읽기/쓰기: 실습 4-1에서 존 파일을 v2로 교체한다 (auth는 같은 디렉터리를 읽기 전용으로 본다)
+      - ./zones:/zones
+    command: ["sleep", "infinity"]
+    networks:
+      dnsnet: { ipv4_address: 10.53.0.20 }
+
+  java:
+    # glibc 기반(Ubuntu jammy) JDK. 버전 고정: JVM DNS 캐시 기본값이 버전에 따라 달라질 수 있으므로
+    image: eclipse-temurin:21.0.4_7-jdk-jammy
+    init: true
+    dns: [10.53.0.53]
+    working_dir: /lab
+    volumes:
+      - ./java:/lab:ro
+    command: ["sleep", "infinity"]
+    networks:
+      dnsnet: { ipv4_address: 10.53.0.30 }

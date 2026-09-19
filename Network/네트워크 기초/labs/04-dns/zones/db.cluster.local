@@ -1,0 +1,5 @@
+; 쿠버네티스 검색 도메인 흉내용 빈 존. SOA와 NS만 있으므로 이 아래 이름은 전부 NXDOMAIN.
+$ORIGIN cluster.local.
+$TTL 3600
+@   IN SOA  ns1.lab.internal. admin.lab.internal. 2026091901 3600 600 86400 30
+    IN NS   ns1.lab.internal.

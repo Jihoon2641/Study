@@ -1,0 +1,24 @@
+; lab.internal 존 — v1 (초기 상태)
+; 실습 4-1에서 db.lab.internal.v2 로 교체한다. 활성 파일은 db.lab.internal.
+$ORIGIN lab.internal.
+$TTL 3600
+@           IN SOA  ns1.lab.internal. admin.lab.internal. (
+                    2026091901 ; serial  - 이 값이 바뀌어야 CoreDNS가 파일을 다시 읽는다
+                    3600       ; refresh
+                    600        ; retry
+                    86400      ; expire
+                    60 )       ; minimum - 부정 응답(NXDOMAIN) 캐시 시간 (RFC 2308)
+            IN NS   ns1.lab.internal.
+ns1         IN A    10.53.0.10
+
+; TTL 30초: 자주 바뀔 수 있는 서비스 주소
+api         30    IN A      10.53.0.101
+; TTL 1일: "이전 전에 TTL을 미리 낮추지 않은" 레코드
+static      86400 IN A      10.53.0.120
+; DB 엔드포인트: RDS/Aurora처럼 CNAME으로 실제 인스턴스를 가리킴
+db          10    IN CNAME  db-primary.lab.internal.
+db-primary  10    IN A      10.53.0.111
+db-replica  10    IN A      10.53.0.112
+; ndots 실습용 (점이 3개인 이름): pay.partner.lab.internal
+pay.partner 60    IN A      10.53.0.140
+; new.lab.internal 은 v1에 없다 → 부정 캐싱 실습

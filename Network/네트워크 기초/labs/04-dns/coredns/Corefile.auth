@@ -1,0 +1,16 @@
+# 권한 서버: 존 파일의 원본 데이터로만 응답한다. 재귀 조회도, 캐시도 하지 않는다.
+lab.internal:53 {
+    file /zones/db.lab.internal {
+        # 2초마다 파일을 확인하고 SOA serial이 바뀌었으면 다시 읽는다 (기본 1m)
+        reload 2s
+    }
+    log
+    errors
+}
+
+# 쿠버네티스 검색 도메인 흉내용 빈 존: 여기 아래 이름은 전부 NXDOMAIN
+cluster.local:53 {
+    file /zones/db.cluster.local
+    log
+    errors
+}

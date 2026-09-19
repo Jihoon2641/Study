@@ -1,0 +1,17 @@
+# 캐시 리졸버: 실습 존은 권한 서버(auth)로 넘기고, 받은 응답을 캐시한다.
+lab.internal:53 cluster.local:53 {
+    # forward는 IP만 받는다 (컨테이너 이름 불가) → auth를 고정 IP로 둔 이유
+    forward . 10.53.0.10
+    # 캐시 최대 3600초. 실제 캐시 시간 = min(레코드 TTL, 3600). 부정 응답도 캐시한다
+    cache 3600
+    log
+    errors
+}
+
+# 그 밖의 이름(example.com 등)은 컨테이너의 기본 리졸버(Docker 내장 DNS → 호스트)로
+.:53 {
+    forward . /etc/resolv.conf
+    cache 3600
+    log
+    errors
+}
