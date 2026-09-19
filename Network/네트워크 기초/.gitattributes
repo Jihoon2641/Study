@@ -1,0 +1,3 @@
+# 실습 파일은 Linux 컨테이너 안에서 읽힌다 (resolv.conf, Corefile, 존 파일, 스크립트 등).
+# core.autocrlf=true 인 Windows에서 CRLF로 체크아웃되면 파싱이 깨질 수 있으므로 항상 LF로 둔다.
+labs/** text eol=lf
