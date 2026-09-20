@@ -1,0 +1,33 @@
+# 중간 CA가 서버 인증서를 발급할 때 쓰는 최소 설정 (openssl ca)
+# 실제 CA 운영 설정은 훨씬 길다. 여기서는 "CSR을 받아 서명한다"는 흐름만 담았다.
+
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir               = /pki/int
+database          = $dir/index.txt      # 발급 이력 (openssl ca가 직접 관리)
+serial            = $dir/serial         # 다음 일련번호
+new_certs_dir     = $dir/newcerts
+certificate       = $dir/int.crt        # 서명하는 주체 = 중간 CA
+private_key       = $dir/int.key
+default_md        = sha256
+default_days      = 90
+policy            = policy_any
+email_in_dn       = no
+rand_serial       = no
+# CSR에 담긴 확장(여기서는 SAN)을 인증서로 복사한다.
+# 주의: 실제 CA에서 이 옵션을 켜면 CSR이 basicConstraints=CA:TRUE 같은 확장을 요청할 수 있어 위험하다.
+# 아래 v3_server 확장이 함께 적용되므로 실습 범위에서는 안전하지만, 운영에서는 SAN만 골라 복사하는 방식을 쓴다.
+copy_extensions   = copy
+
+[ policy_any ]
+commonName = supplied
+
+# 서버 인증서용 확장
+[ v3_server ]
+basicConstraints     = critical,CA:FALSE          # 이 인증서로 다른 인증서를 서명할 수 없다
+keyUsage             = critical,digitalSignature,keyEncipherment
+extendedKeyUsage     = serverAuth                  # 서버 인증 용도
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
