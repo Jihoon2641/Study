@@ -46,3 +46,4 @@ public final class Temperature {
 ## 등장하는 아이템
 - [아이템 1. 생성자 대신 정적 팩터리 메서드를 고려하라](../Item1/item-1-static-factory-method.md) — 이 아이템의 주제 자체. 장단점과 이름 관례를 다룬다.
 - [아이템 2. 생성자에 매개변수가 많다면 빌더를 고려하라](../Item2/item-2-builder.md) — 생성자와 함께 "선택 매개변수가 많으면 대응하기 어렵다"는 공통 한계를 가진 쪽으로 등장한다. 빌더 진입점을 `builder()` 정적 팩터리로 여는 형태로도 함께 쓰인다.
+- [아이템 17. 변경 가능성을 최소화하라](../Item17/item-17-minimize-mutability.md) — 불변 클래스를 `final` 대신 private 생성자 + 정적 팩터리로 확장 불가능하게 만드는 설계로 등장한다. 불변 인스턴스를 캐싱해 재사용하는 통로 역할도 한다(`Complex.valueOf`, `Integer.valueOf`).
