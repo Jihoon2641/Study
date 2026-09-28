@@ -230,7 +230,7 @@ finalizer/cleaner와 `try-with-resources`.
 답변은 기본적으로 **세 종류의 파일**로 낸다.
 
 1. **설명 파일 (`.md`)** — 3번의 섹션 구조를 따른다. 각 섹션의 3단 대비 코드 블록, 5·6번의 버전 보완, 7번의 연관 아이템, 8번의 역질문, 14번의 "핵심 키워드" 링크를 담는다. 글의 본체는 여기다.
-2. **예제 파일 (`.java`)** — 설명 파일의 3단 대비 중 **가장 중심이 되는 축 하나**를, 그대로 컴파일하고 실행할 수 있는 코드로 옮긴 것. 설명 파일의 코드 블록은 읽기용이고, 예제 파일은 main에서 실제로 깨뜨려 보는 실행용이다. 규칙은 13번.
+2. **예제 파일 (`.java`, ①·②·③ 세 파일)** — 설명 파일의 3단 대비 중 **가장 중심이 되는 축 하나**를, 그대로 컴파일하고 실행할 수 있는 코드로 옮긴 것. ① 나쁜 코드, ② 문제 재현(main), ③ 개선 코드를 **파일 하나씩으로 분리**한다. 설명 파일의 코드 블록은 읽기용이고, 예제 파일은 main에서 실제로 깨뜨려 보는 실행용이다. 규칙은 13번.
 3. **키워드 설명 파일 (`.md`, 여러 개)** — 설명 파일에 등장하는 핵심 키워드(예: 아이템 14의 `Comparable`, `compareTo`) 각각을 따로 풀어 쓴 개념 문서. 규칙은 14번.
 
 저장 위치를 내가 따로 지정하지 않으면 **설명·예제 파일은 `Item{번호}/` 폴더에**, **키워드 파일은 프로젝트 루트의 공용 `Keywords/` 폴더에** 넣는다.
@@ -238,7 +238,9 @@ finalizer/cleaner와 `try-with-resources`.
 ```
 Item17/
   item-17-immutable-class.md
-  Item17Example.java
+  Item17Bad.java        ← ① 흔히 쓰는(나쁜) 코드
+  Item17Problem.java    ← ② 무엇이 문제인가 (main)
+  Item17Good.java       ← ③ 개선된 코드
 Keywords/
   immutable-object.md
   defensive-copy.md
@@ -255,45 +257,77 @@ Keywords/
 - 내가 "짧게", "결론만", "한 줄로" 라고 하면 파일을 만들지 말고 채팅에서 한 줄로 끝낸다.
 - 코드가 필요 없는 질문(용어 뜻, 규약의 취지, 두 개념의 차이 등)이면 예제 파일은 생략하고 `.md`만 만든다. 다만 **생략했다는 사실과 이유를 한 줄로 밝혀라.** 말없이 빠뜨리는 것과 판단해서 뺀 것은 다르다.
 - 반대로 코드가 주제인 질문에서 예제 파일을 빼먹지 마라. 3단 대비가 성립하는 질문이면 예제 파일은 필수다.
-- 질문 하나당 예제 파일 하나. 설명 파일에 3단 대비 섹션이 여러 개이거나 아이템 여러 개를 한꺼번에 물으면 **가장 중심이 되는 축 하나만** 예제로 만들고, 나머지는 `.md`의 코드 블록으로 처리한다. 어느 축을 골랐는지 채팅 요약에 한 줄로 밝힌다.
+- 질문 하나당 예제 세트(①·②·③ 세 파일) 하나. 설명 파일에 3단 대비 섹션이 여러 개이거나 아이템 여러 개를 한꺼번에 물으면 **가장 중심이 되는 축 하나만** 예제로 만들고, 나머지는 `.md`의 코드 블록으로 처리한다. 어느 축을 골랐는지 채팅 요약에 한 줄로 밝힌다.
 
 ## 13. 예제 파일 규칙
 
 ### 13-1. 파일명
 
 - 설명 파일: `Item{번호}/item-{번호}-{영문-주제}.md` — 예: `Item17/item-17-immutable-class.md`
-- 예제 파일: `Item{번호}/Item{번호}Example.java` — 예: `Item17/Item17Example.java`
+- 예제 파일은 3단 대비의 ①·②·③을 **파일 하나씩으로 분리**한다.
+
+  | 역할 | 파일 | 예 |
+  |---|---|---|
+  | ① 흔히 쓰는(나쁜) 코드 | `Item{번호}/Item{번호}Bad.java` | `Item17/Item17Bad.java` |
+  | ② 무엇이 문제인가 (main) | `Item{번호}/Item{번호}Problem.java` | `Item17/Item17Problem.java` |
+  | ③ 개선된 코드 | `Item{번호}/Item{번호}Good.java` | `Item17/Item17Good.java` |
+  | Java 7 대안 (5번 규칙에 걸릴 때만) | `Item{번호}/Item{번호}Legacy7.java` | `Item17/Item17Legacy7.java` |
+  | ①·③ 공용 타입 (둘 다 쓰는 타입이 있을 때만) | `Item{번호}/Item{번호}Common.java` | `Item5/Item5Common.java` |
+
+- `Common`은 ①과 ③이 **둘 다** 쓰는 도메인 타입(아이템 5의 `Lexicon`과 사전 구현, 아이템 15의 `Thing` 등)만 둔다. 이런 타입을 `Bad`나 `Good` 한쪽에 넣으면 반대쪽이 그 파일에 의존하게 되어 "①과 ③은 서로 독립"이라는 구조가 깨진다. 시나리오 전용 도우미(`roundTrip`, `sameSlot`, 합계 유틸 등)는 `Common`이 아니라 `Problem`에 둔다.
+
 - 7번 규칙에 따라 **아이템 번호가 확실하지 않으면 번호를 빼고 주제만** 쓴다. 폴더명도 마찬가지다:
-  `ImmutableClass/immutable-class.md` / `ImmutableClass/ImmutableClassExample.java`
-- 폴더에 넣더라도 **`package` 선언은 넣지 않는다.** 그래야 `java Item17/Item17Example.java` 한 줄로 바로 돌아간다(13-4 규칙).
+  `ImmutableClass/immutable-class.md` / `ImmutableClass/ImmutableClassBad.java` / `ImmutableClassProblem.java` / `ImmutableClassGood.java`
+- 폴더에 넣더라도 **`package` 선언은 넣지 않는다.**
+- 파일 이름(= 최상위 public 클래스 이름)에 **반드시 아이템 번호를 붙인다.** 모든 `Item*` 폴더가 같은 IntelliJ 모듈의 소스 루트이고 전부 기본 패키지(default package)라서, 최상위 클래스 이름이 아이템끼리 겹치면 컴파일이 깨진다. 책의 클래스 이름(`InstrumentedHashSet`, `NutritionFacts` 등)을 최상위 클래스로 쓰지 말고 13-2처럼 중첩 클래스로 넣는다.
 
 ### 13-2. 파일 구조
 
-`.java` 파일 하나 안에서 4번의 3단 대비가 끝나야 한다. public 클래스는 하나만 두고,
-나머지는 **정적 중첩 클래스(static nested class)** 로 나란히 배치한다.
-설명 파일이 단계형(3-1 B)이라 나쁜 방식이 둘 이상이면 `①-1`, `①-2`로 나눠 둔다.
+세 파일이 합쳐져서 4번의 3단 대비가 끝나야 한다. 각 파일에는 public 클래스 하나(`Item17Bad` 등)를 두고,
+책의 예제 클래스는 그 안에 **정적 중첩 클래스(static nested class)** 로 넣는다. 중첩 클래스는 package-private으로 두면 같은 폴더의 다른 파일에서 `Item17Bad.Complex`처럼 접근할 수 있다.
+설명 파일이 단계형(3-1 B)이라 나쁜 방식이 둘 이상이면 `Bad` 파일 안에서 `①-1`, `①-2` 주석으로 나눠 둔다. 파일을 더 쪼개지 않는다.
 
 ```java
-// 대상 Java 버전: 17+ (Java 7 대안은 하단 Legacy7 참고)
-public class Item17Example {
-
-    // ① 흔히 쓰는(나쁜) 코드 — 실무에서 이렇게 짜기 쉽다
-    static final class Bad { /* ... */ }
-
-    // ③ 개선된 코드 — 이펙티브 자바가 권하는 형태
-    static final class Good { /* ... */ }
-
-    // Java 7 대안 (5번 규칙에 걸릴 때만)
-    static final class Legacy7 { /* ... */ }
-
-    // ② 무엇이 문제인가 — 말로 하지 말고 여기서 실제로 깨뜨린다
-    public static void main(String[] args) { /* ... */ }
+// Item17Bad.java
+// ① 흔히 쓰는(나쁜) 코드 — 실무에서 이렇게 짜기 쉽다
+// 대상 Java 버전: 7+
+public class Item17Bad {
+    static final class Complex { /* 책의 이름 그대로 */ }
 }
 ```
 
-### 13-3. main 메서드가 이 파일의 존재 이유다
+```java
+// Item17Good.java
+// ③ 개선된 코드 — 이펙티브 자바가 권하는 형태
+// 대상 Java 버전: 17+ (Java 7 대안은 Item17Legacy7.java)
+public class Item17Good {
+    static final class Complex { /* ... */ }
+}
+```
 
-②(무엇이 문제인가)를 주석 산문으로 때우지 마라. **main에서 실제로 깨지는 것을 재현**하고,
+```java
+// Item17Problem.java
+// ② 무엇이 문제인가 — ① Item17Bad 를 실제로 깨뜨리고, ③ Item17Good 과 나란히 비교한다
+// 대상 Java 버전: 7+
+// 실행 (Java 11~21): javac -d out/cli/Item17 Item17/*.java && java -cp out/cli/Item17 Item17Problem
+// 실행 (Java 22+):   java Item17/Item17Problem.java
+public class Item17Problem {
+    public static void main(String[] args) {
+        Item17Bad.Complex bad = /* ... */;
+        Item17Good.Complex good = /* ... */;
+    }
+}
+```
+
+- 파일이 나뉘면 같은 파일(같은 nest) 안이라서 되던 `private` 접근이 바깥 파일에서는 컴파일 에러가 된다. `Problem`에서 `private` 생성자를 직접 부르는 식의 재현은 할 수 없으니, 그 에러 자체를 `// 컴파일 에러: ...` 주석으로 보여 주고, "클래스 내부에서의 호출"을 재현해야 하면 `Good` 안에 재현용 메서드를 두고 주석으로 용도를 밝힌다(예: `Item4Good.GoodMathUtils.internalMistake()`). 컴파일 에러 메시지는 추측하지 말고 실제 javac 출력을 옮긴다.
+- 코드는 IntelliJ 기본 코드 스타일(Ctrl+Alt+L) 기준으로 정렬한다. 메서드 본문을 한 줄로 몰아 쓰지 않는다. 한 줄짜리 메서드 뒤에 붙인 주석은 정렬 후 `}` 뒤로 밀려나므로, 주석은 본문 안의 해당 줄에 단다.
+- `Bad`/`Good`/`Legacy7` 파일에는 main을 두지 않는다. 실행 진입점은 `Problem` 하나다.
+- 세 파일 모두 첫 줄에 ①/②/③ 중 무엇인지 적는다. 파일을 하나만 열어도 자기 역할이 보여야 한다.
+- `Bad`와 `Good`의 중첩 클래스는 **같은 이름**(책의 이름)을 써도 된다. `Item17Bad.Complex`와 `Item17Good.Complex`로 구분되므로, 오히려 "같은 클래스의 나쁜 버전과 좋은 버전"이라는 대비가 선명해진다. 책이 두 버전에 다른 이름을 붙였으면(`InstrumentedHashSet` / `InstrumentedSet`) 책을 따른다.
+
+### 13-3. Problem 파일의 main이 예제의 존재 이유다
+
+②(무엇이 문제인가)를 주석 산문으로 때우지 마라. **`Item{번호}Problem.java`의 main에서 실제로 깨지는 것을 재현**하고,
 출력만 봐도 "언제, 어떤 입력에서, 어떻게 터지는가"가 드러나게 한다.
 
 - 기대 출력을 주석으로 미리 적어 둔다.
@@ -304,10 +338,14 @@ public class Item17Example {
 
 ### 13-4. 제약
 
-- **외부 라이브러리 금지.** JDK 표준 라이브러리만 쓴다. Lombok, JUnit, Guava 전부 안 된다. 파일을 그대로 받아 `java Item17Example.java` 한 줄로(Java 11+) 돌아가야 한다.
+- **외부 라이브러리 금지.** JDK 표준 라이브러리만 쓴다. Lombok, JUnit, Guava 전부 안 된다.
+- **실행 방법을 `Problem` 파일 머리 주석에 두 줄로 적는다.** 파일이 여러 개라서 Java 11~21의 단일 파일 소스 실행(`java X.java`)으로는 다른 파일의 클래스를 찾지 못한다.
+  - Java 11~21: `javac -d out/cli/Item17 Item17/*.java && java -cp out/cli/Item17 Item17Problem`
+  - Java 22+: `java Item17/Item17Problem.java` (JEP 458 다중 파일 소스 실행 — 같은 폴더의 다른 소스를 자동으로 찾는다)
+  - IntelliJ에서는 `Item17Problem`의 main을 바로 실행하면 된다.
 - 주석은 한국어(11번 규칙). 설명 산문은 `.md`에 두고, `.java` 주석은 "이 줄이 왜 문제인가" 수준으로 짧게.
-- 파일 최상단에 **대상 Java 버전 한 줄**(5번 규칙). Java 7에서 못 쓰는 문법을 썼다면 같은 파일에 `Legacy7` 클래스로 대안을 넣는다.
-- 100줄을 넘어가면 예제가 과하다는 신호다. 곁가지를 잘라내고 대비되는 축 하나만 남겨라.
+- **각 파일** 최상단에 **대상 Java 버전 한 줄**(5번 규칙). 파일마다 버전이 다를 수 있다(예: `Good`만 `record`를 써서 16+). Java 7에서 못 쓰는 문법을 썼다면 `Item{번호}Legacy7.java`로 대안을 따로 두고, `Problem`에서도 호출해 동작이 같은지(또는 어디가 다른지) 보여 준다.
+- 정렬(Ctrl+Alt+L) 후 기준으로 파일 하나가 80줄, 전체 합계가 200줄을 넘어가면 예제가 과하다는 신호다. 단, 책의 `ForwardingSet`처럼 인터페이스의 메서드를 전부 나열해야 성립하는 코드는 예외로 둔다. 곁가지를 잘라내고 대비되는 축 하나만 남겨라. 분리한 덕에 줄 수 여유가 생긴 것이지, 축을 늘려도 된다는 뜻이 아니다.
 - 클래스·필드 이름은 설명 파일의 코드 블록과 맞춘다. 설명 파일이 책의 예제를 썼으면 책의 이름을 따른다(4번 규칙).
 
 ## 14. 키워드 설명 파일 규칙

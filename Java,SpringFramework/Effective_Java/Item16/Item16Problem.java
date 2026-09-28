@@ -1,57 +1,26 @@
-// 대상 Java 버전: 7+ (문법상 Java 7 레거시에서도 그대로 컴파일된다 — Legacy7 클래스 불필요)
-// 실행: java Item16/Item16Example.java  (단일 파일 소스 실행은 Java 11+)
+// ② 무엇이 문제인가 — ① Item16Bad 를 실제로 깨뜨리고, ③ Item16Good 과 나란히 비교한다
+// 대상 Java 버전: 5+ → Java 7 레거시에서도 그대로 컴파일된다
+// 실행 (Java 11~21): javac -d out/cli/Item16 Item16/*.java && java -cp out/cli/Item16 Item16Problem
+// 실행 (Java 22+):   java Item16/Item16Problem.java   ← 같은 폴더의 다른 소스 파일을 자동으로 찾는다
 
-public class Item16Example {
-
-    // ① 흔히 쓰는(나쁜) 코드 — 생성자에서 검증했으니 안전하다고 믿는다
-    static final class BadTime {
-        public int hour;    // 필드가 public 이라 생성자 검증을 우회해 직접 대입할 수 있다
-        public int minute;
-
-        BadTime(int hour, int minute) {
-            if (hour < 0 || hour >= 24) throw new IllegalArgumentException("시: " + hour);
-            if (minute < 0 || minute >= 60) throw new IllegalArgumentException("분: " + minute);
-            this.hour = hour;
-            this.minute = minute;
-        }
-    }
-
-    // ③ 개선된 코드 — 필드는 private, 접근은 메서드로만
-    static final class Time {
-        // 내부 표현을 "자정 이후 분" 하나로 바꿨다. 클라이언트는 이 사실을 모른다.
-        private int minuteOfDay;
-
-        Time(int hour, int minute) { set(hour, minute); }
-
-        public int hour()   { return minuteOfDay / 60; }
-        public int minute() { return minuteOfDay % 60; }
-
-        public void set(int hour, int minute) {   // 모든 쓰기가 이 한 곳을 지난다
-            if (hour < 0 || hour >= 24) throw new IllegalArgumentException("시: " + hour);
-            if (minute < 0 || minute >= 60) throw new IllegalArgumentException("분: " + minute);
-            this.minuteOfDay = hour * 60 + minute;
-        }
-
-        @Override public String toString() { return String.format("%02d:%02d", hour(), minute()); }
-    }
+public class Item16Problem {
 
     // 회의실 예약 시스템의 다른 모듈 — BadTime 을 만든 사람과 다른 사람이 짰다
-    static boolean sameSlot(BadTime a, BadTime b) {
+    static boolean sameSlot(Item16Bad.BadTime a, Item16Bad.BadTime b) {
         return a.hour * 60 + a.minute == b.hour * 60 + b.minute;
     }
 
-    // ② 무엇이 문제인가 — 말로 때우지 말고 여기서 실제로 깨뜨린다
     public static void main(String[] args) {
         System.out.println("=== ① BadTime: 생성자 검증은 통과, 그 다음이 문제 ===");
         try {
-            new BadTime(10, 75);
+            new Item16Bad.BadTime(10, 75);
         } catch (IllegalArgumentException e) {
             System.out.println("new BadTime(10, 75) → 차단됨: " + e.getMessage());
         }
         // 출력: new BadTime(10, 75) → 차단됨: 분: 75
 
-        BadTime meetingA = new BadTime(10, 30);
-        BadTime meetingB = new BadTime(11, 15);
+        Item16Bad.BadTime meetingA = new Item16Bad.BadTime(10, 30);
+        Item16Bad.BadTime meetingB = new Item16Bad.BadTime(11, 15);
 
         // "15분 연장" 기능을 구현한 누군가가 분만 더하고 시 올림을 빠뜨렸다.
         // 컴파일 에러 없음. 런타임 예외 없음. 로그 한 줄 안 남는다.
@@ -64,7 +33,7 @@ public class Item16Example {
 
         System.out.println();
         System.out.println("=== ③ Time: 모든 쓰기가 검증을 지난다 ===");
-        Time t = new Time(10, 30);
+        Item16Good.Time t = new Item16Good.Time(10, 30);
         try {
             t.set(t.hour(), t.minute() + 45);   // 같은 실수를 해도
         } catch (IllegalArgumentException e) {

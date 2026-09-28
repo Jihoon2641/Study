@@ -173,7 +173,7 @@ class Point {
 }
 ```
 
-같은 방식으로 `Time`을 고치면 내부 표현을 바꿀 수 있다는 점이 드러난다. `Item16Example.java`의 `Time`이 이 형태다.
+같은 방식으로 `Time`을 고치면 내부 표현을 바꿀 수 있다는 점이 드러난다. `Item16Good.java`의 `Time`이 이 형태다.
 
 ```java
 public final class Time {

@@ -42,7 +42,7 @@ public static final Thing[] VALUES = { ... };
 - `VALUES = new Thing[0];` → `putstatic` 명령. final 필드에 대한 `putstatic`은 그 클래스의 `<clinit>` 밖에서는 허용되지 않는다. 그래서 컴파일도 안 된다.
 - `VALUES[0] = x;` → `aastore` 명령. 이건 **배열 객체에 대한 연산이지 필드에 대한 연산이 아니다.** final 여부와 아무 상관이 없어 조용히 통과한다.
 
-결과적으로 `public static final` 배열은 "누구나 내용을 바꿀 수 있는 전역 변수"다. 예제 파일 `Item15Example.java`의 main이 이 장면을 실제로 재현한다.
+결과적으로 `public static final` 배열은 "누구나 내용을 바꿀 수 있는 전역 변수"다. 예제 `Item15Problem.java`의 main이 이 장면을 실제로 재현한다.
 
 해결책은 두 가지다.
 
@@ -58,7 +58,7 @@ public static Thing[] values() { return PRIVATE_VALUES.clone(); }
 ```
 
 `(Java 9+)` 원소를 인라인으로 적을 수 있다면 `List.of(...)`가 더 낫다. `unmodifiableList`는 원본 리스트를 감싼 **뷰(view)** 라서 원본이 바뀌면 뷰도 따라 바뀌지만, `List.of`는 값을 복사해 담는 진짜 불변 리스트다. `(Java 10+)`에는 기존 컬렉션으로부터 만드는 `List.copyOf` / `Set.copyOf` / `Map.copyOf`도 있다.
-`(Java 7 프로젝트)` `List.of`는 못 쓴다. 위 (1)번 형태가 그대로 대안이고, 예제 파일의 `Legacy7` 클래스가 이것이다.
+`(Java 7 프로젝트)` `List.of`는 못 쓴다. 위 (1)번 형태가 그대로 대안이고, 예제 파일 `Item15Legacy7.java`가 이것이다.
 
 `clone()`과 불변 리스트 중 고르는 기준은 하나다. **호출자가 결과를 수정할 일이 있으면 `clone()`(호출마다 복사 비용 발생), 읽기만 한다면 불변 리스트(복사 비용 0).** 상수 목록은 대개 후자다.
 

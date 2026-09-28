@@ -189,7 +189,7 @@ public enum Elvis {
 }
 ```
 
-생성자 가드도, `readResolve`도, `transient`도 없다. 그래도 리플렉션, 직렬화, `clone` 세 경로가 모두 막혀 있다. 예제 파일 `Item3Example.java`의 main이 1단계 `Elvis`는 두 경로 모두에서 뚫리고, 열거 타입은 두 경로 모두에서 막히는 것을 실제로 보여 준다.
+생성자 가드도, `readResolve`도, `transient`도 없다. 그래도 리플렉션, 직렬화, `clone` 세 경로가 모두 막혀 있다. 예제 `Item3Problem.java`의 main이 1단계 `Elvis`는 두 경로 모두에서 뚫리고, 열거 타입은 두 경로 모두에서 막히는 것을 실제로 보여 준다.
 
 ## 원리 — javac가 만든 결과물은 사실 1단계와 같다
 

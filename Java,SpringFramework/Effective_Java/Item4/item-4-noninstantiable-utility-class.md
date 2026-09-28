@@ -36,7 +36,7 @@ MathUtils u = new MathUtils();          // 컴파일 통과, 예외 없음
 u.round(2.5);                            // 인스턴스로 정적 메서드 호출 — 이것도 통과
 ```
 
-예제 파일 `Item4Example.java`를 실행하면 `MathUtils.class.getDeclaredConstructors()`가 **소스에 쓴 적 없는 `public` 생성자 1개**를 돌려주는 것을 직접 볼 수 있다.
+예제 `Item4Problem.java`를 실행하면 `MathUtils.class.getDeclaredConstructors()`가 **소스에 쓴 적 없는 `public` 생성자 1개**를 돌려주는 것을 직접 볼 수 있다.
 
 당장 터지는 건 없다. 문제는 이 클래스가 "인스턴스를 만들어도 되는 클래스"로 보인다는 데서 시작한다.
 
@@ -124,7 +124,7 @@ public class UtilityClass {
 
 ## 원리 — 왜 굳이 AssertionError를 던지는가
 
-`private` 생성자만으로 바깥에서의 `new`는 이미 막힌다. 그런데 **클래스 내부에서는 여전히 호출할 수 있다.** 같은 클래스 안의 코드에서 `new UtilityClass()`는 접근 제한에 걸리지 않으므로 아무 경고 없이 컴파일된다. 예제 파일에서 `new GoodMathUtils()`를 같은 파일 안에서 호출하는 줄이 정확히 이 경우다. 자바 11부터는 중첩 클래스들이 같은 둥지(nest)로 묶여 서로의 `private` 멤버에 접근할 수 있으므로, 바깥 클래스에서 중첩 유틸리티 클래스의 `private` 생성자를 호출하는 것도 컴파일된다.
+`private` 생성자만으로 바깥에서의 `new`는 이미 막힌다. 그런데 **클래스 내부에서는 여전히 호출할 수 있다.** 같은 클래스 안의 코드에서 `new UtilityClass()`는 접근 제한에 걸리지 않으므로 아무 경고 없이 컴파일된다. 예제의 `Item4Good.GoodMathUtils.internalMistake()`가 정확히 이 경우다. 자바 11부터는 중첩 클래스들이 같은 둥지(nest)로 묶여 서로의 `private` 멤버에 접근할 수 있으므로, 바깥 클래스에서 중첩 유틸리티 클래스의 `private` 생성자를 호출하는 것도 컴파일된다.
 
 예외를 던지면 이 경로가 실행 시점에 즉시 끊긴다. 던질 예외로 `AssertionError`를 고르는 이유는 의미 때문이다. 이 생성자에 도달했다는 것은 **"절대 일어나서는 안 되는 일이 일어났다"** 는 뜻이고, 그건 사용자 입력 문제(`IllegalArgumentException`)나 상태 문제(`IllegalStateException`)가 아니라 프로그램 자체의 결함이다. `Error`의 하위 타입이라 검사 예외도 아니고, `catch (Exception e)`로 감싸 둔 상위 코드에 조용히 먹히지도 않는다.
 
