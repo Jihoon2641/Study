@@ -38,3 +38,4 @@ class SalesReport extends ReportGenerator {
 
 ## 등장하는 아이템
 - [아이템 19. 상속을 고려해 설계하고 문서화하라. 그러지 않았다면 상속을 금지하라](../Item19/item-19-design-for-inheritance.md) — 2번 항목 "내부 동작 중간에 끼어들 수 있는 훅을 protected로 공개하라"의 구조다.
+- [아이템 20. 추상 클래스보다는 인터페이스를 우선하라](../Item20/item-20-prefer-interfaces.md) — 골격 구현이 기반 메서드(`get`, `size`)를 훅으로 삼아 나머지를 구현하는 템플릿 메서드 패턴이다.

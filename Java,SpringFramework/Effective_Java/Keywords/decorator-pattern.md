@@ -42,3 +42,4 @@ final class NonNullList<E> extends AbstractList<E> {
 
 ## 등장하는 아이템
 - [아이템 18. 상속보다는 컴포지션을 사용하라](../Item18/item-18-composition-over-inheritance.md) — `InstrumentedSet`이 어떤 `Set`이든 감싸서 계측 기능을 덧씌우는 데코레이터다.
+- [아이템 20. 추상 클래스보다는 인터페이스를 우선하라](../Item20/item-20-prefer-interfaces.md) — 타입이 인터페이스여야 래퍼가 원본과 같은 타입이 될 수 있다는 4번 항목의 근거다.
