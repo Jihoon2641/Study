@@ -41,3 +41,4 @@ new Child().greet();   // 출력: 부모 greet → 자식
 
 ## 등장하는 아이템
 - [아이템 18. 상속보다는 컴포지션을 사용하라](../Item18/item-18-composition-over-inheritance.md) — `super.addAll` 안의 `this.add`가 하위 클래스의 `add`로 디스패치되어 두 번 세는 원리다.
+- [아이템 19. 상속을 고려해 설계하고 문서화하라. 그러지 않았다면 상속을 금지하라](../Item19/item-19-design-for-inheritance.md) — 상위 생성자 안의 `invokevirtual`이 초기화 전의 하위 클래스 메서드로 디스패치되는 사례를 다룬다.

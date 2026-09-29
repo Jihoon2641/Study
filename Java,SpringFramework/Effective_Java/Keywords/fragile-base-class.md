@@ -34,3 +34,4 @@ c.addAll(Arrays.asList("a", "b", "c"));
 
 ## 등장하는 아이템
 - [아이템 18. 상속보다는 컴포지션을 사용하라](../Item18/item-18-composition-over-inheritance.md) — `InstrumentedHashSet`의 두 배 계산과 `HashMap.merge`의 검증 우회가 이 문제의 두 갈래를 각각 보여 준다.
+- [아이템 19. 상속을 고려해 설계하고 문서화하라. 그러지 않았다면 상속을 금지하라](../Item19/item-19-design-for-inheritance.md) — 상위 클래스 작성자 쪽의 대책이다. 자기사용을 `@implSpec`으로 계약으로 만들거나, `final`로 상속을 막아 자기사용을 구현 세부로 되돌린다.
