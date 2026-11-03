@@ -66,7 +66,9 @@ Spring Boot 컨트롤러가 이 객체를 반환하면 응답은 이렇다.
 
 - `password`는 필드가 있는데 **나가지 않았다**. getter가 없다.
 - `displayName`, `vip`는 필드가 없는데 **나갔다**. getter가 있다. 이름에서 `get`/`is`가 떨어졌다.
-- 즉 Jackson의 기준은 **필드가 아니라 getter**다.
+- 즉 Jackson의 기준은 **필드 선언이 아니라 "보이는 접근자"** 다. 기본 설정에서 보이는 접근자는 public getter와 public 필드이고, `@JsonProperty`·`@JsonIgnore`·가시성 설정으로 바뀐다. getter만 보는 것은 아니지만, 일반적인 DTO(private 필드 + getter)에서는 사실상 getter가 기준이 된다.
+- `displayName`과 `vip`의 값은 저장된 값이 아니다. Jackson이 직렬화할 때 `getDisplayName()`, `isVip()`를 **실제로 호출해서** 얻은 계산 결과다. 빼고 싶으면 그 getter에 `@JsonIgnore`를 붙인다.
+- 키 순서는 이 예시와 같다고 가정하지 않는다. 순서를 고정하려면 `@JsonPropertyOrder`를 쓴다.
 - `joinedAt`이 ISO 문자열로 나간 것은 **Spring Boot가 구성한 `ObjectMapper`** 이기 때문이다. 같은 객체를 `new ObjectMapper().writeValueAsString(...)`으로 바꾸면 `LocalDateTime`을 처리할 수 없다는 예외가 난다 (8.5).
 
 전체 실행 코드는 [예제 문서](./Jackson직렬화-예제.md)에 있다.
@@ -79,7 +81,7 @@ Spring Boot 컨트롤러가 이 객체를 반환하면 응답은 이렇다.
 |---|---|
 | `ObjectMapper` | Jackson의 진입점. 설정, 모듈, serializer 캐시를 가진다. 설정을 마친 뒤에는 스레드 안전해서 애플리케이션에 하나를 공유한다. Boot는 이것을 빈으로 등록한다. |
 | 프로퍼티 (Property) | JSON의 키 하나에 대응하는 단위. getter·setter·필드·생성자 파라미터 중 같은 이름을 가진 것들을 묶어 하나로 만든다. |
-| 인트로스펙션 (Introspection) | 클래스를 리플렉션으로 분석해 프로퍼티 목록과 이름, 접근 방법을 결정하는 과정. 클래스당 한 번 일어난다. |
+| 인트로스펙션 (Introspection) | 클래스를 분석해 프로퍼티 목록과 이름, 접근 방법을 결정하는 과정. 리플렉션(Reflection)은 그 분석에 쓰는 **수단**이고, 인트로스펙션은 그 수단으로 하는 **분석 작업**이다. getter를 **찾기만** 하고 호출하지는 않는다. 결과는 `ObjectMapper`에 캐시된다(5.6). |
 | 가시성 (Visibility) | 어떤 멤버를 자동으로 프로퍼티로 인정할지 정하는 규칙. 기본값은 public getter, public `is` getter(원시 `boolean`), public 필드다. |
 | `JsonSerializer` / `BeanSerializer` | 특정 타입을 JSON으로 쓰는 객체. 일반 클래스(POJO)용은 `BeanSerializer`이고, 프로퍼티마다 writer를 하나씩 가진다. `ObjectMapper` 안에 타입별로 캐시된다. |
 | `JsonGenerator` | 토큰(`{`, 키, 값, `}`)을 출력 스트림에 바로 쓰는 스트리밍 API(jackson-core). 전체 JSON을 메모리에 만들지 않는다. |
@@ -100,7 +102,9 @@ Spring Boot 컨트롤러가 이 객체를 반환하면 응답은 이렇다.
 
 ### 5.2 serializer 결정 — 프로퍼티는 어떻게 정해지나
 
-`MemberResponse`를 처음 직렬화할 때 한 번만 일어나고, 결과는 캐시된다.
+같은 `ObjectMapper`로 `MemberResponse`를 처음 직렬화할 때 일어나고, 결과는 캐시된다. Boot가 시작할 때 모든 DTO를 미리 분석하는 것이 아니라, 실제로 그 타입을 처음 처리할 때 만든다.
+
+이 단계가 인트로스펙션이다. **getter를 발견하는 단계이지 호출하는 단계가 아니다.** 호출은 5.3에서 인스턴스마다 일어난다.
 
 1. **후보 수집**: 클래스(상위 클래스 포함)의 필드와 메서드를 훑는다.
    - 필드 → 필드 이름 그대로 (`password`, `joinedAt`)
@@ -114,6 +118,17 @@ Spring Boot 컨트롤러가 이 객체를 반환하면 응답은 이렇다.
    - `@JsonIgnore`가 붙으면 그 프로퍼티 전체가 제거된다.
 4. **writer 목록 생성**: 남은 프로퍼티마다 "값을 꺼내는 방법(getter 또는 필드)"과 "이름"을 가진 writer를 만든다. 쓰기용 접근자는 getter가 필드보다 우선이다.
 5. 이 writer 목록으로 `BeanSerializer`를 만들어 `ObjectMapper`의 캐시에 넣는다.
+
+인트로스펙션이 끝나면 `MemberResponse`에 대해 이런 규칙이 만들어진다.
+
+```text
+JSON 이름       값을 읽는 방법
+id              getId()
+name            getName()
+joinedAt        getJoinedAt()
+displayName     getDisplayName()
+vip             isVip()
+```
 
 ### 5.3 쓰기 — 인스턴스마다
 
@@ -161,18 +176,59 @@ sequenceDiagram
     Note over G: 버퍼가 차면 그때마다 응답 커밋
 ```
 
+**캐시되는 것과 매번 일어나는 것**을 구분해야 한다. 캐시되는 것은 "이 타입을 어떻게 처리할지"에 대한 규칙이지, **JSON 결과값이 아니다.**
+
+| 캐시해서 재사용 (5.2) | 직렬화할 때마다 새로 (5.3) |
+|---|---|
+| JSON 프로퍼티 이름 | 현재 객체의 실제 값 |
+| 어떤 getter나 필드로 값을 읽을지 | getter 호출과 그 반환값 |
+| 그 타입을 처리할 serializer | 이번에 만들어지는 JSON |
+
+그래서 `writeValueAsString(memberA)`와 `writeValueAsString(memberB)`는 같은 `BeanSerializer`를 쓰지만 각 객체의 getter를 따로 호출한다. `getDisplayName()` 안의 계산도 직렬화할 때마다 다시 실행된다. getter가 예외를 던지거나 쿼리를 날리면 그 영향은 **매번** 직렬화 시점에 나타난다(8.1, 8.3).
+
+"처음 한 번만 분석한다"는 말은 **같은 설정의 같은 매퍼 인스턴스에서 캐시를 재사용하는 일반적인 경우**를 단순화한 것이다. 매퍼를 새로 만들면 분석도 다시 한다(8.5). 애플리케이션 전체에서 정확히 한 번만 분석된다는 보장은 아니다.
+
 ### 5.4 Boot의 `ObjectMapper`는 기본 `ObjectMapper`와 다르다
 
-Spring Boot의 `JacksonAutoConfiguration`은 `Jackson2ObjectMapperBuilder`로 `ObjectMapper` 빈을 만들고, 아래 기본값을 바꿔 둔다.
+Boot는 별도의 JSON 엔진을 만드는 것이 아니다. **Jackson의 `ObjectMapper`에 기본 옵션·모듈·사용자 설정을 입혀서 싱글톤 빈으로 등록할 뿐**이다. 이 일을 하는 자동 설정 클래스가 `JacksonAutoConfiguration`이고, 실제 조립은 Spring의 `Jackson2ObjectMapperBuilder`가 한다.
+
+```mermaid
+flowchart TD
+    A[애플리케이션 시작] --> B{"Jackson(jackson-databind)이<br/>클래스패스에 있나?"}
+    B -->|no| X["Jackson 자동 설정 없음"]
+    B -->|yes| C{"개발자가 ObjectMapper 빈을<br/>직접 등록했나?"}
+    C -->|yes| Y["Boot 기본 매퍼 생성 생략<br/>등록한 빈을 그대로 사용<br/>⚠ Boot 기본 설정이 자동으로 입혀지지 않음"]
+    C -->|no| D["Jackson2ObjectMapperBuilder 준비"]
+    D --> E["기본 기능 플래그 변경 (아래 표)"]
+    E --> F["모듈 등록<br/>· 클래스패스의 알려진 모듈 자동 감지 (jsr310, jdk8, parameter-names)<br/>· 컨텍스트에 등록된 Jackson Module 빈"]
+    F --> G["spring.jackson.* 프로퍼티 반영"]
+    G --> H["Jackson2ObjectMapperBuilderCustomizer 빈 적용"]
+    H --> I["ObjectMapper 싱글톤 빈 등록"]
+    I --> J["MVC Jackson 컨버터와<br/>ObjectMapper를 주입받는 애플리케이션 코드가 공유"]
+```
+
+**모듈과 옵션은 역할이 다르다.** 모듈은 특정 타입을 **처리하는 방법**을 제공하고, 옵션(기능 플래그)은 처리 방식과 **출력 형태**를 조절한다. `LocalDateTime`을 예로 들면, 직렬화할 수 있게 해주는 것은 `JavaTimeModule`이고, 그 결과를 배열로 쓸지 문자열로 쓸지는 `WRITE_DATES_AS_TIMESTAMPS`가 정한다. 그래서 아래 표에서 모듈만 등록하고 옵션을 안 바꾸면 날짜가 배열로 나온다.
 
 | 항목 | Boot 빈 | `new ObjectMapper()` |
 |---|---|---|
 | `java.time` 모듈 (jsr310) | 클래스패스에 있으면 자동 등록 | 미등록 → `LocalDateTime` 직렬화 실패 (Jackson 2.12+) |
 | `WRITE_DATES_AS_TIMESTAMPS` | 꺼짐 → `"2026-11-02T10:15:30"` | 켜짐 → 모듈을 등록해도 `[2026,11,2,10,15,30]` |
+| `WRITE_DURATIONS_AS_TIMESTAMPS` | 꺼짐 → `Duration`이 `"PT30M"` 같은 문자열 | 켜짐 → 숫자 |
 | `FAIL_ON_UNKNOWN_PROPERTIES` (읽기) | 꺼짐 → 모르는 필드 무시 | 켜짐 → `UnrecognizedPropertyException` |
 | `DEFAULT_VIEW_INCLUSION` | 꺼짐 | 켜짐 |
 | `spring.jackson.*` 프로퍼티 | 반영 | 무시 |
 | `Jackson2ObjectMapperBuilderCustomizer` 빈 | 반영 | 무시 |
+| 컨텍스트의 Jackson `Module` 빈 | 반영 | 무시 |
+
+설정을 바꾸는 방법은 두 가지다. 단순 옵션은 `application.yml`의 `spring.jackson.*`로, 코드가 필요하면 `Jackson2ObjectMapperBuilderCustomizer` 빈으로 바꾼다. 둘 다 **Boot의 기본 구성을 유지한 채 덧붙이는** 방식이다.
+
+```yaml
+spring:
+  jackson:
+    default-property-inclusion: non_null   # null인 프로퍼티를 JSON에서 제외 (Boot 기본값이 아니라 기본 동작을 바꾸는 설정)
+```
+
+반대로 `@Bean ObjectMapper`를 직접 등록하면 위 흐름도의 "yes" 쪽으로 빠져 Boot의 기본 매퍼 생성 전체가 생략된다. 직접 만든 매퍼가 위 표의 Boot 설정을 자동으로 받는다고 가정하면 안 된다.
 
 `starter-web`(`starter-json`)은 `jackson-datatype-jdk8`(`Optional`), `jackson-datatype-jsr310`(`java.time`), `jackson-module-parameter-names`를 함께 가져온다.
 
@@ -191,9 +247,19 @@ Spring Boot의 `JacksonAutoConfiguration`은 `Jackson2ObjectMapperBuilder`로 `O
 | 객체 | 생성 | 수명 |
 |---|---|---|
 | `ObjectMapper` | 애플리케이션 시작 시 Boot가 빈으로 1개 | 애플리케이션 전체. 모든 요청이 공유 |
-| serializer 캐시 (`BeanSerializer` 등) | 타입별 첫 직렬화 시 | 그 `ObjectMapper`가 살아 있는 동안. **`ObjectMapper`를 새로 만들면 캐시도 새로 시작한다** (8.5) |
+| serializer 캐시 (`BeanSerializer` 등) | 타입별 첫 직렬화 시 | 그 `ObjectMapper`가 살아 있는 동안. **요청·스레드별 캐시가 아니라 매퍼 인스턴스의 캐시**다. `ObjectMapper`를 새로 만들면 캐시도 새로 시작한다 (8.5) |
 | `JsonGenerator` | `writeValue` 호출마다 | 그 호출이 끝날 때까지. 출력 스트림을 감싸는 데코레이터와 같다 |
 | 직렬화 대상 객체 | 컨트롤러가 반환 | 직렬화가 끝날 때까지 참조된다. 엔티티라면 그동안 지연 로딩이 계속 일어날 수 있다 |
+
+캐시가 매퍼 인스턴스에 붙어 있으므로, Boot의 싱글톤 매퍼를 공유하면 모든 요청과 스레드가 같은 캐시의 이점을 얻는다.
+
+```text
+요청 A (스레드 1) ─┐
+요청 B (스레드 2) ─┼─→ 공유 ObjectMapper → 타입별 serializer 캐시 재사용
+요청 C (스레드 3) ─┘        └ 각 요청의 JsonGenerator와 getter 호출은 따로
+```
+
+이것이 가능한 이유는 `ObjectMapper`가 **사용 전에 설정을 마치면** 여러 스레드에서 공유해도 안전하기 때문이다. 요청 처리 중에 공유 매퍼의 설정을 바꾸면 이 전제가 깨지고, 다른 모든 요청의 결과까지 바뀐다(8.5).
 
 ---
 
@@ -293,8 +359,34 @@ Spring Boot의 `JacksonAutoConfiguration`은 `Jackson2ObjectMapperBuilder`로 `O
   - 같은 요청 JSON이 컨트롤러에서는 잘 읽히는데 직접 읽으면 `UnrecognizedPropertyException`이 난다.
   - Kafka·Redis 메시지 변환 구간에서 CPU 사용량이 높다.
   - `WebMvcConfigurer#configureMessageConverters`에 `new MappingJackson2HttpMessageConverter()`를 추가한 뒤로 API 응답 전체의 날짜 형식이 바뀐다.
-- **원인**: Boot 빈과 기본 `ObjectMapper`의 설정이 다르다(5.4). serializer 캐시는 `ObjectMapper` 인스턴스 단위라서(5.6, 6장) 매번 새로 만들면 매번 introspection을 다시 한다.
-- **해결**: `ObjectMapper`는 **Boot 빈을 주입받아** 쓴다. 설정은 `spring.jackson.*` 프로퍼티나 `Jackson2ObjectMapperBuilderCustomizer` 빈으로 바꾼다. Spring 컨텍스트 밖(테스트, 배치 유틸)에서 필요하면 `Jackson2ObjectMapperBuilder.json()`으로 만들고 날짜 설정을 맞춘다. 공유 빈의 설정을 런타임에 `configure(...)`로 바꾸지 않는다. 모든 API가 영향을 받는다.
+- **원인**: Boot 빈과 기본 `ObjectMapper`의 설정이 다르다(5.4). `new ObjectMapper()`는 Jackson 기본 설정의 **새 객체**라서 Boot의 모듈·옵션·`spring.jackson.*`이 하나도 적용되지 않는다. serializer 캐시는 `ObjectMapper` 인스턴스 단위라서(5.6, 6장) 매번 새로 만들면 매번 introspection을 다시 한다.
+  - `LocalDateTime` 예외는 **실제 값이 있는 `LocalDateTime`을 쓸 때** 난다. 필드가 선언만 되어 있고 직렬화 대상에서 빠졌거나 값이 `null`이면 날짜 serializer가 실행되지 않아 예외 없이 지나갈 수 있다. 그래서 테스트 데이터에 날짜가 비어 있으면 놓친다.
+- **해결**: `ObjectMapper`는 **Boot 빈을 주입받아** 쓴다. 생성자 주입은 매퍼를 새로 만드는 것이 아니라, Spring이 관리하는 Boot 매퍼를 전달받는 것이다.
+
+  ```java
+  @Service
+  public class MemberJsonService {
+      private final ObjectMapper objectMapper;   // Boot가 구성한 싱글톤 빈
+
+      public MemberJsonService(ObjectMapper objectMapper) {
+          this.objectMapper = objectMapper;
+      }
+
+      public String toJson(MemberResponse member) throws JsonProcessingException {
+          return objectMapper.writeValueAsString(member);   // API 응답과 같은 규칙, 같은 캐시
+      }
+  }
+  ```
+
+  직접 만들어야 한다면 의존성을 추가하고 모듈과 옵션을 둘 다 지정한다(5.4의 "모듈과 옵션은 역할이 다르다"). 이것만으로 Boot 설정 전체가 재현되지는 않는다.
+
+  ```java
+  ObjectMapper mapper = new ObjectMapper();
+  mapper.registerModule(new JavaTimeModule());                    // 타입 처리 방법
+  mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS); // 출력 형태
+  ```
+
+  나머지 원칙은 이렇다. 설정은 `spring.jackson.*` 프로퍼티나 `Jackson2ObjectMapperBuilderCustomizer` 빈으로 바꾼다. Spring 컨텍스트 밖(테스트, 배치 유틸)에서 필요하면 `Jackson2ObjectMapperBuilder.json()`으로 만들고 날짜 설정을 맞춘다. 공유 빈의 설정을 런타임에 `configure(...)`로 바꾸지 않는다. 모든 API가 영향을 받는다.
 
 ### 8.6 `LocalDateTime` 응답이 9시간 어긋난다
 
@@ -311,6 +403,17 @@ Spring Boot의 `JacksonAutoConfiguration`은 `Jackson2ObjectMapperBuilder`로 `O
 ---
 
 ## 9. 실무 적용 시나리오
+
+먼저 **`ObjectMapper`를 직접 주입받아야 하는 곳과 아닌 곳**을 구분한다.
+
+- **주입받지 않아도 되는 곳**: 컨트롤러의 `@RequestBody`·반환값. 메시지 컨버터가 Boot 매퍼로 변환해 준다(5.1). 저장소·메시징 라이브러리가 JSON 변환을 이미 맡고 있다면(예: Redis serializer, Spring Kafka의 JSON serializer 설정) 거기서도 직접 호출할 필요가 없다.
+
+  ```text
+  요청 JSON → 메시지 컨버터·Jackson → MemberRequest
+  MemberResponse → 메시지 컨버터·Jackson → 응답 JSON
+  ```
+
+- **주입받아 직접 호출하는 곳**: 내 코드가 JSON 문자열을 직접 다룰 때다. 외부 API 응답 문자열을 객체로 바꿀 때, 객체를 JSON 문자열로 만들어 DB 컬럼·Redis에 넣을 때, 메시지 큐에 보낼 본문을 만들거나 받은 본문을 해석할 때. 이때 반드시 Boot 빈을 주입받는다(8.5).
 
 | 상황 | Jackson이 관여하는 곳 | 주의할 함정 |
 |---|---|---|
@@ -412,10 +515,15 @@ Jackson은 응답 스트림에 바로 흘려 쓰고, 서블릿 응답 버퍼(Tom
 | 가시성 | Visibility | 어떤 멤버를 자동으로 프로퍼티로 인정할지 정하는 규칙 |
 | 모듈 | Module | 특정 타입군의 serializer·deserializer를 묶어 등록하는 확장 단위 |
 | 기능 플래그 | Feature Flag (`SerializationFeature` 등) | `ObjectMapper`의 전역 동작을 켜고 끄는 설정 |
+| 자동 설정 | Auto-configuration (`JacksonAutoConfiguration`) | 클래스패스와 등록된 빈을 보고 Boot가 기본 빈을 조건부로 만들어 주는 기능 |
+| 싱글톤 빈 | Singleton Bean | 컨테이너에 하나만 만들어져 모든 곳에서 공유되는 Spring 빈 |
+| 커스터마이저 | Customizer (`Jackson2ObjectMapperBuilderCustomizer`) | Boot 기본 구성을 유지한 채 설정을 덧붙이는 콜백 빈 |
+| 스레드 안전 | Thread Safety | 여러 스레드가 동시에 써도 결과가 올바른 성질. `ObjectMapper`는 설정을 마친 뒤 공유하면 안전 |
 | OSIV | Open Session In View | 영속성 컨텍스트를 HTTP 요청이 끝날 때까지 열어 두는 설정. Boot 기본값은 켜짐 |
 | 지연 로딩 | Lazy Loading | 연관 엔티티를 실제로 접근할 때 쿼리로 읽어 오는 JPA 동작 |
 | 프록시 | Proxy (Hibernate Proxy) | 지연 로딩을 위해 엔티티 대신 들어 있는 하위 클래스 객체 |
 | N+1 | N+1 Query Problem | 목록 1번 조회 후 원소마다 추가 쿼리가 N번 나가는 문제 |
 | 양방향 연관관계 | Bidirectional Association | 두 엔티티가 서로를 참조하는 매핑. 직렬화 시 무한 재귀의 원인이 된다 |
+| 생성자 주입 | Constructor Injection | 생성자 인자로 Spring이 관리하는 빈을 전달받는 방식. 새 객체를 만드는 것이 아니다 |
 | 정식 생성자 | Canonical Constructor | record의 모든 컴포넌트를 순서대로 받는 생성자 |
 | 오프셋 | Offset | UTC와의 시간 차이(`+09:00`). `LocalDateTime`에는 없다 |
