@@ -233,11 +233,113 @@ OpenJDK `java.math.BigDecimal` 기준.
 
 ## 9. 실무 적용 시나리오
 
+### 9.1 언제 BigDecimal을 고르나
+
+```
+값에 소수가 있는가?
+├─ 있다 → 오차가 1원이라도 문제가 되는가?
+│        ├─ 된다 (금액·비율·세금)        → BigDecimal
+│        └─ 안 된다 (통계·좌표·ML 점수)   → double
+└─ 없다 → long 범위를 넘을 수 있는가?
+         ├─ 안 넘는다                    → long
+         └─ 넘는다                       → BigInteger
+```
+
+| 상황 | 타입 | 이유 |
+|---|---|---|
+| 주문 금액, 할인율, 부가세, 환율, 이자, 수수료 | **BigDecimal** | 소수 곱셈과 반올림 정책이 있다 |
+| DB `numeric(p,s)` 금액 컬럼 | **BigDecimal** | JDBC가 `numeric`을 BigDecimal로 돌려준다 |
+| 원화 잔액·포인트 (덧셈·뺄셈만) | long 또는 BigDecimal | 정수 가감뿐이면 long이 빠르다. 할인율·세율을 곱하는 순간 소수가 생기므로 다른 금액과 섞이면 BigDecimal로 통일한다 |
+| 평균 응답 시간, 조회수 비율, 추천 점수 | double | 근사값이면 충분하다 |
+
+### 9.2 계층별 적용
+
 - **REST API 입출력**: 요청 DTO의 금액 필드는 `BigDecimal`. Jackson은 JSON 숫자를 BigDecimal 필드로 역직렬화할 때 double을 거치지 않는다. 다만 `Map<String,Object>`로 받으면 기본이 Double이므로 `DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS`를 켜야 한다. 응답은 `toPlainString` 설정 + 필요시 `@JsonFormat(shape = JsonFormat.Shape.STRING)`으로 React에 문자열 전달.
 - **JPA 엔티티**: `@Column(precision = 19, scale = 2) private BigDecimal amount;` → `numeric(19,2)`. precision/scale을 명시하지 않으면 Hibernate 기본값이 적용된다(버전별 기본값은 확인 필요). 저장 후 다시 읽으면 scale이 컬럼 scale로 바뀌므로 equals 비교 금지(8.2).
 - **정산·배치**: 수수료율 곱셈, 일할 계산(÷ 30), N분할 배분. 8.5의 나머지 처리와 "합계 = 원금" 검증이 핵심.
 - **환율·외부 PG 연동**: 외부 시스템이 소수 몇 자리까지 받는지, 반올림인지 절사인지 계약서·API 문서에 명시된 규칙대로 `setScale`. 통화별 소수 자리수는 `java.util.Currency#getDefaultFractionDigits()`(KRW=0, USD=2)로 얻을 수 있다.
 - **트랜잭션 경계**: BigDecimal 자체는 불변이라 동시성 문제가 없다. 동시성 문제는 "잔액 읽기 → 계산 → 쓰기"의 경쟁 상태에서 생기므로 DB 락이나 `UPDATE ... SET balance = balance - ?`로 해결한다.
+
+### 9.3 실제로 만나는 사례
+
+직접 `new BigDecimal(...)`을 쓰는 경우보다, **DB·라이브러리가 BigDecimal을 돌려주거나 BigDecimal이어야 할 값이 double로 들어오는 경우**가 사고의 대부분이다.
+
+**① PostgreSQL 네이티브 쿼리의 집계 결과가 BigDecimal**
+
+```java
+Object result = em.createNativeQuery("SELECT SUM(quantity) FROM order_line").getSingleResult();
+Long total = (Long) result;                     // ClassCastException: BigDecimal cannot be cast to Long
+long total = ((Number) result).longValue();     // ○ 타입이 바뀌어도 안전
+```
+
+| 함수 | 입력 타입 | 결과 타입 | Java |
+|---|---|---|---|
+| `sum` | `integer` | `bigint` | Long |
+| `sum` | `bigint` | `numeric` | **BigDecimal** |
+| `avg` | `integer`, `bigint` | `numeric` | **BigDecimal** |
+
+`bigint` 합계는 long을 넘을 수 있어서 `numeric`이 된다. 컬럼을 `integer`에서 `bigint`로 바꾸기만 해도 기존 캐스팅 코드가 깨진다.
+
+**② JPQL `AVG`는 항상 Double**
+
+```java
+Double avg = em.createQuery("SELECT AVG(o.amount) FROM Order o", Double.class).getSingleResult();
+```
+
+JPA 스펙상 `AVG`의 결과는 `Double`이다. `amount`가 BigDecimal이어도 평균 금액에 2진 오차가 섞인다. 정확한 평균은 `SUM`(BigDecimal 필드면 BigDecimal)과 `COUNT`를 따로 구해 `divide(count, scale, mode)`로 계산한다(8.4).
+
+**③ 엑셀 업로드 — POI는 숫자 셀을 double로만 준다**
+
+```java
+double raw = cell.getNumericCellValue();
+BigDecimal amount = BigDecimal.valueOf(raw);    // new BigDecimal(raw)는 8.1 함정
+```
+
+가격표·정산 데이터 일괄 업로드에서 만난다. 가능하면 `DataFormatter`로 셀에 표시된 문자열을 받아 `new BigDecimal(String)`으로 만든다.
+
+**④ PG 결제 API — 최소 통화 단위 정수로 변환**
+
+Stripe 같은 PG는 금액을 최소 단위 정수로 받는다(USD 10.99 → `1099`). 경계에서 변환한다.
+
+```java
+int digits = Currency.getInstance("USD").getDefaultFractionDigits();   // USD 2, KRW 0
+long minorUnits = amount.setScale(digits, RoundingMode.UNNECESSARY)    // 이미 반올림이 끝나 있어야 한다. 남은 자리가 있으면 예외
+                        .movePointRight(digits)
+                        .longValueExact();                              // 10.99 → 1099
+BigDecimal back = BigDecimal.valueOf(minorUnits, digits);              // 1099 → 10.99
+```
+
+여기서 몰래 반올림하면 우리 DB와 PG 정산 금액이 어긋난다(8.7).
+
+**⑤ 요청 금액 검증 — `@Digits`를 DB 컬럼과 맞춘다**
+
+```java
+public record PaymentRequest(
+        @NotNull @DecimalMin("0.01")
+        @Digits(integer = 15, fraction = 2)    // numeric(17,2)와 맞춤
+        BigDecimal amount) {}
+```
+
+PostgreSQL의 조용한 입력 반올림(8.7)과 `numeric field overflow`를 입력 단계에서 막는다. `1E1000000000` 같은 지수 표기 입력도 함께 막힌다.
+
+**⑥ 직접 계산하는 곳**
+
+| 사례 | 코드 핵심 |
+|---|---|
+| 주문·정산·수수료 | 단가 × 수량 → 할인 `setScale(0, DOWN)` → 세금 `setScale(0, HALF_UP)` ([예제](./BigDecimal-예제.md) `OrderCalculator`) |
+| N분할 배분 | 몫(DOWN) + 나머지 몰아주기 (예제 `Allocator`) |
+| 이자·복리 | `rate.add(ONE).pow(n, MathContext.DECIMAL128)` — 반복 곱셈으로 scale이 폭증하므로 유효 숫자를 제한 |
+| 환율 변환 | `amount.multiply(rate).setScale(통화 자릿수, mode)` — 환율 자릿수와 통화 자릿수가 다르다 |
+| 금액 타입 라이브러리 | Java Money(JSR 354) 구현체 Moneta의 `Money`가 내부적으로 BigDecimal을 쓴다(`FastMoney`는 long 기반) |
+
+**⑦ Python(RAG) 쪽**
+
+```python
+row = cur.fetchone()              # psycopg는 numeric을 decimal.Decimal로 반환
+json.dumps({"amount": row[0]})    # TypeError: Object of type Decimal is not JSON serializable
+```
+
+`str(row[0])`으로 문자열로 넘긴다. `float()`로 바꾸면 Java에서 피했던 오차가 다시 생긴다.
 
 ---
 
@@ -293,3 +395,8 @@ OpenJDK `java.math.BigDecimal` 기준.
 | 지수 표기 | scientific notation | `1E+2`처럼 10의 거듭제곱으로 표현한 문자열 |
 | 배분 | allocation | 총액을 여러 대상에게 나누는 계산. 나머지 처리 정책이 필요 |
 | 0에서 멀어지는 반올림 | round half away from zero | 절반일 때 절댓값이 커지는 쪽으로. PostgreSQL numeric 입력 반올림 방식 |
+| 네이티브 쿼리 | native query | JPQL이 아닌 DB SQL을 그대로 실행하는 쿼리. 결과 타입을 드라이버가 정한다 |
+| 집계 함수 | aggregate function | `SUM`, `AVG`처럼 여러 행을 하나의 값으로 모으는 함수. PostgreSQL은 결과 타입을 넓힌다 |
+| JPQL | Java Persistence Query Language | 엔티티 기준으로 작성하는 JPA 쿼리 언어. `AVG`는 항상 Double |
+| 빈 검증 | Bean Validation | `@Digits`, `@DecimalMin` 같은 어노테이션으로 입력값을 검증하는 Java 표준 |
+| JSR 354 | Java Specification Request 354 (Money and Currency API) | 금액·통화 타입 표준 API. 구현체 Moneta |

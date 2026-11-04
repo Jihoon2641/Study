@@ -298,12 +298,92 @@ OpenJDK `java.math.BigInteger` 기준.
 
 ## 9. 실무 적용 시나리오
 
-- **외부 시스템의 unsigned 64비트 ID**: 일부 외부 플랫폼·메시징 시스템은 ID를 unsigned 64비트로 준다. 2^63 이상이면 long에 담을 수 없으므로 BigInteger로 받고 PostgreSQL `numeric(20,0)`에 저장한다. 연산 없이 저장·조회만 한다면 `Long.parseUnsignedLong`으로 long 하나에 담고 `bigint`에 저장하는 방식도 쓸 수 있다(정렬·비교 시 `Long.compareUnsigned` 필요).
+### 9.1 언제 BigInteger를 고르나
+
+판단 기준은 7장의 **"이 값이 long을 넘을 수 있는가?"** 하나다. 소수가 있으면 BigInteger가 아니라 [BigDecimal](../BigDecimal/BigDecimal-이론.md#91-언제-bigdecimal을-고르나)이다.
+
+| 상황 | 타입 | 이유 |
+|---|---|---|
+| 회원 ID, 주문 ID, 카운터, 페이지 번호 | long | long을 넘을 일이 없다 |
+| 외부 시스템의 unsigned 64비트 ID | String / **BigInteger** / long + `Long.*Unsigned` | 2^63 이상이 올 수 있다 (아래 9.2) |
+| 해시값으로 샤드·버킷 번호 계산 | **BigInteger** (`mod`) | 256비트 해시를 수로 다뤄야 한다 |
+| 해시를 16진 문자열로 표시 | 둘 다 아님 → `HexFormat` | 수치 연산이 아니라 표현 문제다 (8.2) |
+| 조합 수, 팩토리얼 같은 큰 수 | **BigInteger** | 21!부터 long을 넘는다 |
+| 인증서 일련번호, RSA·EC 키 | **BigInteger** (JDK가 돌려줌) | 160비트, 2048비트 정수다 (아래 9.3) |
+
+일반 업무 코드에서 BigInteger를 **직접 만드는 일은 드물다.** 대부분은 JDK·드라이버·Jackson이 BigInteger를 돌려줘서 받아 쓰게 된다.
+
+### 9.2 계층별 적용
+
+- **외부 시스템의 unsigned 64비트 ID**: Java에는 unsigned 64비트 타입이 없어서 2^63 이상(9,223,372,036,854,775,808 ~ 18,446,744,073,709,551,615)인 ID는 long에 그대로 담기지 않는다. `Long.parseLong`은 `NumberFormatException`, Jackson은 long 필드 역직렬화 시 `InputCoercionException`, PostgreSQL `bigint`는 `bigint out of range`.
+  - **출처**: 다른 시스템의 MySQL `BIGINT UNSIGNED` PK, 64비트 해시(xxHash64 등)를 ID로 쓰는 시스템(값이 고르게 퍼져 **약 절반이 2^63 이상**), Go·Rust·C++ 서비스의 `uint64`, protobuf `uint64` 필드(protobuf-java는 이를 `long`에 담아 2^63 이상이면 음수로 보인다).
+  - Discord·Twitter의 snowflake ID는 64비트지만 현재 값은 2^63보다 작아서 long에 들어간다. 대신 2^53을 넘으므로 8.6(JS 정밀도)의 대표 사례다. 두 문제를 구분한다.
+
+  | 방식 | 저장 | 장점 | 주의 |
+  |---|---|---|---|
+  | String | `varchar(20)` | 가장 단순. JSON·JS 정밀도 문제도 없다 | 숫자 정렬·범위 비교 불가 |
+  | BigInteger | `numeric(20,0)` | 정확. 비교·`mod`·정렬 가능 | 느리고 무겁다. JSON은 문자열로 |
+  | long + `Long.*Unsigned` | `bigint` | 빠르고 작다 (protobuf 방식) | 출력·비교·정렬마다 unsigned 메서드 필요. DB `ORDER BY`에서 큰 ID가 음수라 맨 앞에 온다 |
+
+  ID는 대부분 **식별자이지 계산 대상이 아니다.** 저장·조회·전달만 한다면 String, 크기 비교·범위 조회·샤딩이 필요하면 BigInteger, 대량 처리 성능이 중요하면 long + unsigned 메서드.
 - **해시 기반 샤딩·버킷팅**: `new BigInteger(1, sha256).mod(BigInteger.valueOf(shardCount))`. 부호(8.3)와 mod(8.4)를 둘 다 지켜야 한다.
 - **해시·체크섬 문자열**: 수치 연산이 아니라 표현만 필요하면 BigInteger를 쓰지 않는다. `HexFormat`(Java 17+)이나 직접 루프로 바이트 → 16진수(8.2).
 - **REST API 응답**: 2^53을 넘을 수 있는 정수는 문자열로 직렬화(8.6). [Jackson 직렬화](../Jackson직렬화/Jackson직렬화-이론.md) 설정과 함께 관리한다.
 - **JDBC/JPA**: PostgreSQL `numeric`은 JDBC에서 BigDecimal로 읽힌다. BigInteger가 필요하면 `rs.getBigDecimal(col).toBigIntegerExact()` — 소수부가 있으면 예외를 던지므로 데이터 오염을 바로 알 수 있다. JPA 엔티티 필드를 BigInteger로 선언했을 때의 기본 DDL 매핑은 Hibernate 버전별로 확인 필요. 컬럼 정의는 `@Column(precision = 20, scale = 0)`처럼 명시한다.
 - **암호 연산**: RSA 등의 모듈러 연산(`modPow`, `modInverse`)이 BigInteger로 구현돼 있지만, 직접 구현하지 말고 JCA(`java.security`, `javax.crypto`)를 쓴다. BigInteger 연산은 상수 시간(constant-time)이 보장되지 않아 타이밍 공격에 취약할 수 있다.
+
+### 9.3 실제로 만나는 사례
+
+**① JDK가 돌려주는 BigInteger — 인증서 일련번호**
+
+```java
+X509Certificate cert = (X509Certificate) CertificateFactory.getInstance("X.509").generateCertificate(in);
+BigInteger serial = cert.getSerialNumber();    // RFC 5280: 최대 20바이트(160비트) → long 불가
+```
+
+mTLS 클라이언트 인증서 검증, 폐기 목록(CRL) 대조, 인증서 만료 모니터링에서 만난다. 일련번호를 16진 문자열로 저장·비교할 때 8.2(앞자리 0 손실)를 실제로 겪는다.
+
+**② JWKS로 RSA 공개키 조립 — `new BigInteger(1, bytes)`가 필수인 이유**
+
+```java
+byte[] nBytes = Base64.getUrlDecoder().decode(jwk.get("n"));
+byte[] eBytes = Base64.getUrlDecoder().decode(jwk.get("e"));
+RSAPublicKeySpec spec = new RSAPublicKeySpec(
+        new BigInteger(1, nBytes),     // signum 생략 시 첫 바이트 최상위 비트가 1이면 모듈러스가 음수 → 키 생성 실패 (8.3)
+        new BigInteger(1, eBytes));
+PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(spec);
+```
+
+JWT 서명 검증용 공개키를 인증 서버의 JWKS 엔드포인트에서 받아 만드는 코드다. 보통은 Spring Security·Nimbus JOSE가 대신 처리하지만 내부에서 하는 일이 이것이다. 반대로 `RSAPublicKey#getModulus()`도 BigInteger를 돌려준다.
+
+**③ MySQL 네이티브 쿼리의 형변환 사고**
+
+```java
+Object result = em.createNativeQuery("SELECT COUNT(*) FROM orders").getSingleResult();
+Long count = (Long) result;                     // MySQL + Hibernate 조합에서 ClassCastException: BigInteger cannot be cast to Long
+long count = ((Number) result).longValue();     // ○
+```
+
+MySQL `COUNT(*)`·`BIGINT UNSIGNED` 결과를 드라이버가 BigInteger로 돌려주는 경우가 있다(드라이버·Hibernate 버전별 정확한 타입은 확인 필요). PostgreSQL은 `count(*)`가 `bigint`라 Long으로 온다. 네이티브 쿼리 결과는 항상 `Number`로 받는다.
+
+**④ Jackson 타입 미지정 역직렬화**
+
+```java
+Map<String, Object> map = objectMapper.readValue("{\"id\": 18446744073709551615}", Map.class);
+map.get("id").getClass();    // java.math.BigInteger  (크기에 따라 Integer → Long → BigInteger)
+```
+
+외부 웹훅 JSON을 `Map`으로 받아 `(Long) map.get("id")`로 꺼내면 대부분은 되다가 큰 값에서만 `ClassCastException`이 난다.
+
+**⑤ 직접 쓰는 곳**
+
+| 사례 | 코드 핵심 | 이유 |
+|---|---|---|
+| 단축 URL·짧은 ID | `new BigInteger(1, uuidBytes).toString(36)` | 128비트 UUID를 짧은 문자열로. long은 64비트라 담지 못한다 |
+| 해시 기반 샤딩 | `new BigInteger(1, sha256).mod(n)` | 8.3·8.4 ([예제](./BigInteger-예제.md) `ShardRouter`) |
+| 블록체인 금액 | web3j의 잔액·토큰 수량 | 이더리움은 `uint256`, 최소 단위(wei)가 10^18이라 long을 바로 넘는다 |
+| unsigned 64비트 출력 | Guava `UnsignedLong#bigIntegerValue()` | long에 담긴 unsigned 값을 정확한 수로 바꿀 때 |
+| BigDecimal 내부 | `intVal` 필드 | unscaled 값이 long을 넘으면 BigInteger로 저장 ([BigDecimal 6장](../BigDecimal/BigDecimal-이론.md#6-내부-구현-핵심만)) |
 
 ---
 
@@ -369,3 +449,8 @@ OpenJDK `java.math.BigInteger` 기준.
 | 서비스 거부 | DoS (Denial of Service) | 과도한 자원 소비를 유발해 서비스를 멈추게 하는 공격 |
 | 상수 시간 | constant-time | 입력 값과 무관하게 같은 시간이 걸리는 연산. 타이밍 공격 방어 조건 |
 | JCA | Java Cryptography Architecture | Java 표준 암호 API 체계 |
+| 부호 없는 64비트 정수 | unsigned 64-bit integer | 64비트 전부를 값으로 쓰는 정수(0 ~ 2^64−1). Java에는 이 타입이 없다 |
+| 스노플레이크 ID | Snowflake ID | 시각·노드·순번을 조합한 64비트 ID. long에 들어가지만 2^53을 넘는다 |
+| X.509 인증서 | X.509 Certificate | TLS 등에서 쓰는 공개키 인증서 표준. 일련번호가 최대 160비트 |
+| JWKS | JSON Web Key Set | JWT 서명 검증용 공개키를 JSON으로 배포하는 형식. RSA 키는 `n`, `e`를 Base64URL 바이트로 담는다 |
+| 네이티브 쿼리 | native query | JPQL이 아닌 DB SQL을 그대로 실행하는 쿼리. 결과 타입을 드라이버가 정한다 |
