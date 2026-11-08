@@ -207,6 +207,21 @@ button:focus-visible { outline: 2px solid var(--loop); outline-offset: 2px; }
 .codebox .ln { display: block; padding: 0 14px; white-space: pre; border-left: 3px solid transparent; color: var(--muted); }
 .codebox .ln.on { background: var(--surface); color: var(--ink); border-left-color: var(--loop); font-weight: 600; }
 
+/* write simulator */
+.wq { display: grid; gap: 10px; }
+.wq-row { display: grid; gap: 3px; }
+.wq-head { font: 500 12px var(--f-mono); color: var(--muted); }
+.wq-head b { color: var(--loop); font-weight: 600; }
+.lbl { font-size: 12px; color: var(--muted); }
+.lbl b { font-family: var(--f-mono); color: var(--ink); font-weight: 600; }
+.empty { font-size: 13px; color: var(--muted); padding: 6px 0; }
+.recv { font: 500 13px var(--f-mono); background: var(--os-tint); border: 1px solid var(--os); padding: 3px 10px; border-radius: 6px; display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+.codebox .ln.cmt { color: var(--muted); font-style: italic; font-weight: 400; }
+.codebox .no { display: inline-block; width: 2.6em; margin-right: 1.1em; text-align: right; font-style: normal; font-weight: 400; color: var(--muted); opacity: 0.7; user-select: none; }
+.codebox .ln.on .no { opacity: 1; color: var(--loop); }
+.stack { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 0 14px 10px; }
+.stack .path { font: 500 12px var(--f-mono); color: var(--ink); }
+
 /* interestOps */
 .ops { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
 @media (max-width: 860px) { .ops { grid-template-columns: 1fr; } }
@@ -511,8 +526,61 @@ footer { color: var(--muted); font-size: 13px; }
           </div>
         </div>
         <div class="codebox">
-          <div class="cap">read(key) 요약 · L396–418</div>
+          <div class="stack" id="rstack"></div>
+          <div class="cap" id="rcap"></div>
           <pre id="code"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4-2. write() 버퍼 시뮬레이터 -->
+  <section>
+    <div class="sec-head">
+      <h2>write() 안에서 버퍼가 움직이는 모양</h2>
+      <p><code>enqueue()</code>가 응답을 <code>out</code> 대기열에 넣고 <code>write()</code>가 소켓 송신 버퍼로 옮기는 과정입니다. 송신 버퍼에 자리가 모자라면 일부만 쓰고, 남은 위치(position)를 버퍼에 그대로 둔 채 다음 기회에 이어 씁니다. 송신 버퍼는 8칸 또는 16칸으로 줄였습니다. 실제로는 송신 버퍼와 상대 수신 버퍼를 합쳐 수백 KB입니다(예제 7번 실측 393,213바이트).</p>
+      <p>오른쪽 코드는 단계마다 <b>지금 실행 중인 메서드</b>로 바뀝니다. 코드 위에는 어느 스레드가 어떤 경로로 그 메서드에 들어왔는지 표시합니다. 응답이 <code>read()</code>에서 시작해 워커를 거쳐 <code>enqueue()</code>에 도착하는 길도 처음부터 따라갑니다. 줄 번호는 예제 문서 기준입니다.</p>
+    </div>
+    <div class="sim" id="wsim">
+      <div class="sim-bar">
+        <div class="seg" role="group" aria-label="출력 예시">
+          <button type="button" id="wsc-fit" data-wsc="fit" aria-pressed="true">한 번에 다 들어감</button>
+          <button type="button" id="wsc-partial" data-wsc="partial" aria-pressed="false">두 번째 응답이 잘림</button>
+          <button type="button" id="wsc-big" data-wsc="big" aria-pressed="false">송신 버퍼보다 큰 응답</button>
+        </div>
+        <div class="nav">
+          <button type="button" id="wprev" aria-label="이전 단계">◀ 이전</button>
+          <span class="count" id="wcount">1 / 1</span>
+          <button type="button" id="wnext" aria-label="다음 단계">다음 ▶</button>
+        </div>
+      </div>
+      <div class="sim-body">
+        <div class="sim-left">
+          <div class="step-title"><span id="w-title"></span><span class="mode" id="w-ops"></span></div>
+          <p class="step-desc" id="w-desc"></p>
+          <div class="wq" aria-live="polite">
+            <span class="lbl"><b>c.out</b> 대기열 (Queue&lt;ByteBuffer&gt;)</span>
+            <div class="wq" id="w-out"></div>
+          </div>
+          <div class="wq-row">
+            <span class="lbl" id="w-sb-label"></span>
+            <div class="cells" id="w-sb"></div>
+          </div>
+          <div class="buf-key">
+            <span><i style="background:var(--loop-tint);border-color:var(--loop)"></i>아직 안 쓴 바이트</span>
+            <span><i style="background:var(--os-tint);border-color:var(--os)"></i>송신 버퍼에 들어간 바이트</span>
+            <span><i style="background:var(--hl);border-color:var(--ink)"></i>이번 단계에서 다룬 구간</span>
+            <span><b style="color:var(--loop)">P</b> position · <b style="color:var(--worker)">L</b> limit</span>
+          </div>
+          <div class="out">
+            <span class="out-label">클라이언트가 받은 바이트</span>
+            <div id="w-recv"></div>
+          </div>
+        </div>
+        <div class="codebox">
+          <div class="stack" id="wstack"></div>
+          <div class="cap" id="wcap"></div>
+          <pre id="wcode"></pre>
         </div>
       </div>
     </div>
@@ -654,16 +722,19 @@ footer { color: var(--muted); font-size: 13px; }
     multi: ['a\nb\nc\n'],
     long: ['x'.repeat(20)]
   };
-  const CODE = [
-    ['read', 'int n = ch.read(c.in);'],
-    ['eof', 'if (n == -1) { closeConnection(key); return; }'],
-    ['flip', 'c.in.flip();'],
-    ['scan', "for (i = position; i < limit; i++) if (get(i) == '\\n') {"],
-    ['dispatch', '    dispatch(key, c, line);  lineStart = i + 1;  }'],
-    ['position', 'c.in.position(lineStart);'],
-    ['compact', 'c.in.compact();'],
-    ['full', 'if (!c.in.hasRemaining()) closeConnection(key);']
-  ];
+  /* read 시뮬레이터 단계 키 → 보여 줄 메서드(SNIP)와 강조할 줄 번호 */
+  const KEYMAP = {
+    sel: ['loop', [338, 353, 354]],
+    read: ['read', [396]],
+    eof: ['read', [397]],
+    flip: ['read', [402, 403]],
+    scan: ['read', [404, 405]],
+    dispatch: ['read', [406, 407, 408, 409]],
+    position: ['read', [412]],
+    compact: ['read', [414]],
+    full: ['read', [415]]
+  };
+  const R_PATH = { accept: ['loop()', 'accept()'], read: ['loop()', 'read(key)'], loop: ['loop()'] };
   const show = str => '"' + str.replace(/\n/g, '\\n') + '"';
 
   function build(chunks) {
@@ -679,6 +750,7 @@ footer { color: var(--muted); font-size: 13px; }
       const data = chunks[k];
       const n = Math.min(data.length, lim - pos);
       const from = pos;
+      snap(['sel'], 'select() 반환 → read(key)', `클라이언트가 보낸 ${show(data)}가 커널 수신 버퍼에 도착해 OP_READ가 준비됐습니다. event-loop가 selectedKeys를 돌다가 isReadable()이 true인 이 키로 read(key)를 호출합니다.`);
       for (let j = 0; j < n; j++) buf[pos + j] = data[j];
       pos += n;
       snap(['read', 'eof'], `read #${k + 1}: ${n}바이트`,
@@ -761,8 +833,13 @@ footer { color: var(--muted); font-size: 13px; }
       ? st.lines.map(l => `<span>${esc(show(l))}</span>`).join('')
       : '<em>아직 없음</em>';
 
-    $('code').innerHTML = CODE.map(([k, t]) =>
-      `<span class="ln${st.code.includes(k) ? ' on' : ''}">${esc(t)}</span>`).join('');
+    let ctx = 'accept', on = [386, 388];
+    if (st.code.length) {
+      ctx = KEYMAP[st.code[0]][0];
+      on = st.code.flatMap(k => KEYMAP[k][1]);
+      if (st.closed) on.push(417);
+    }
+    renderCode({ ctx, on, thread: 'loop', path: R_PATH[ctx] }, 'rstack', 'rcap', 'code');
   }
 
   function load(name) {
@@ -773,12 +850,321 @@ footer { color: var(--muted); font-size: 13px; }
   document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => load(b.dataset.sc)));
   $('prev').addEventListener('click', () => { if (cur > 0) { cur--; render(); } });
   $('next').addEventListener('click', () => { if (cur < steps.length - 1) { cur++; render(); } });
-  document.addEventListener('keydown', e => {
-    if (e.target.closest && e.target.closest('input, textarea, select')) return;
+  $('sim').addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' && cur < steps.length - 1) { cur++; render(); }
     if (e.key === 'ArrowLeft' && cur > 0) { cur--; render(); }
   });
-  load('split');
+  /* ---------- write 시뮬레이터 ---------- */
+  const W_SCEN = {
+    fit: { cap: 16, acts: [['enq', 'hello'], ['enq', 'world'], ['round'], ['peer']] },
+    partial: { cap: 8, acts: [['enq', 'hello'], ['enq', 'world'], ['round'], ['blocked'], ['peer'], ['round'], ['peer']] },
+    big: { cap: 8, acts: [['enq', 'nio-selector-ok'], ['round'], ['blocked'], ['peer'], ['round'], ['peer']] }
+  };
+
+  /* 예제 문서의 실제 코드. [md 줄 번호, 코드]. 줄 번호가 null이면 생략 표시. */
+  const SNIP = {
+    accept: { name: 'accept()', range: 'L383–391', lines: [
+      [383, 'private void accept() throws IOException {'],
+      [384, '    SocketChannel client;'],
+      [385, '    // 백로그에 쌓인 연결을 한 번에 받는다. 없으면 null(논블로킹).'],
+      [386, '    while ((client = server.accept()) != null) {'],
+      [387, '        client.configureBlocking(false);'],
+      [388, '        client.register(selector, SelectionKey.OP_READ, new Connection());'],
+      [389, '        openConnections.incrementAndGet();'],
+      [390, '    }'],
+      [391, '}'],
+      [null, ' '],
+      [310, '// Connection: final ByteBuffer in = ByteBuffer.allocate(MAX_LINE);']
+    ] },
+    read: { name: 'read(key)', range: 'L393–419', lines: [
+      [393, 'private void read(SelectionKey key) throws IOException {'],
+      [394, '    SocketChannel ch = (SocketChannel) key.channel();'],
+      [395, '    Connection c = (Connection) key.attachment();'],
+      [396, '    int n = ch.read(c.in);'],
+      [397, '    if (n == -1) {'],
+      [398, '        // 상대가 FIN을 보냈다. 닫지 않으면 계속 깨어난다.'],
+      [399, '        closeConnection(key);'],
+      [400, '        return;'],
+      [401, '    }'],
+      [402, '    c.in.flip();'],
+      [403, '    int lineStart = c.in.position();'],
+      [404, '    for (int i = c.in.position(); i < c.in.limit(); i++) {'],
+      [405, "        if (c.in.get(i) == '\\n') {"],
+      [406, '            byte[] line = new byte[i - lineStart];'],
+      [407, '            c.in.get(lineStart, line);'],
+      [408, '            dispatch(key, c, new String(line, StandardCharsets.UTF_8));'],
+      [409, '            lineStart = i + 1;'],
+      [410, '        }'],
+      [411, '    }'],
+      [412, '    c.in.position(lineStart);'],
+      [413, '    // 처리 못 한 줄 앞부분을 버퍼 앞으로 당겨, 다음 read가 이어 쓰게 한다.'],
+      [414, '    c.in.compact();'],
+      [415, '    if (!c.in.hasRemaining()) {'],
+      [416, '        // 버퍼가 꽉 찼는데 줄바꿈이 없다.'],
+      [417, '        closeConnection(key);'],
+      [418, '    }'],
+      [419, '}']
+    ] },
+    dispatch: { name: 'dispatch(key, c, line)', range: 'L421–434', lines: [
+      [421, 'private void dispatch(SelectionKey key, Connection c, String line) {'],
+      [422, '    if (workers == null) {'],
+      [null, '        ⋮  // 워커가 없으면 여기서 바로 enqueue (비교용 안티패턴)'],
+      [426, '    }'],
+      [428, '    c.chain = c.chain.thenRunAsync(() -> {'],
+      [429, '        String response = handler.apply(line);'],
+      [430, '        tasks.add(() -> enqueue(key, response));'],
+      [431, '        // select()에서 잠든 이벤트 루프를 깨워 tasks를 실행시킨다.'],
+      [432, '        selector.wakeup();'],
+      [433, '    }, workers);'],
+      [434, '}']
+    ] },
+    loop: { name: 'loop()', range: 'L337–358', lines: [
+      [337, 'while (running) {'],
+      [338, '    selector.select();'],
+      [339, '    selectCount.incrementAndGet();'],
+      [340, '    runTasks();'],
+      [341, '    Iterator<SelectionKey> it = selector.selectedKeys().iterator();'],
+      [342, '    while (it.hasNext()) {'],
+      [343, '        SelectionKey key = it.next();'],
+      [345, '        it.remove();'],
+      [null, '        ⋮  // isValid 확인, isAcceptable → accept()'],
+      [353, '        if (key.isValid() && key.isReadable()) {'],
+      [354, '            read(key);'],
+      [355, '        }'],
+      [356, '        if (key.isValid() && key.isWritable()) {'],
+      [357, '            write(key);'],
+      [358, '        }']
+    ] },
+    runTasks: { name: 'runTasks()', range: 'L376–381', lines: [
+      [376, 'private void runTasks() {'],
+      [377, '    Runnable task;'],
+      [378, '    while ((task = tasks.poll()) != null) {'],
+      [379, '        task.run();'],
+      [380, '    }'],
+      [381, '}']
+    ] },
+    enqueue: { name: 'enqueue(key, response)', range: 'L436–444', lines: [
+      [436, 'private void enqueue(SelectionKey key, String response) {'],
+      [437, '    if (!key.isValid()) {'],
+      [438, '        return; // 그사이 연결이 닫혔다'],
+      [439, '    }'],
+      [440, '    Connection c = (Connection) key.attachment();'],
+      [441, '    c.out.add(ByteBuffer.wrap((response + "\\n").getBytes(StandardCharsets.UTF_8)));'],
+      [442, '    // 보낼 것이 생겼을 때만 OP_WRITE를 켠다.'],
+      [443, '    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);'],
+      [444, '}']
+    ] },
+    write: { name: 'write(key)', range: 'L446–460', lines: [
+      [446, 'private void write(SelectionKey key) throws IOException {'],
+      [447, '    SocketChannel ch = (SocketChannel) key.channel();'],
+      [448, '    Connection c = (Connection) key.attachment();'],
+      [449, '    while (!c.out.isEmpty()) {'],
+      [450, '        ByteBuffer buf = c.out.peek();'],
+      [451, '        ch.write(buf);'],
+      [452, '        if (buf.hasRemaining()) {'],
+      [453, '            // 송신 버퍼가 찼다. OP_WRITE를 켠 채로 두고 다음에 이어 쓴다.'],
+      [454, '            return;'],
+      [455, '        }'],
+      [456, '        c.out.poll();'],
+      [457, '    }'],
+      [458, '    // 다 보냈으면 OP_WRITE를 끈다.'],
+      [459, '    key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);'],
+      [460, '}']
+    ] }
+  };
+  const THREAD = { loop: ['loop', 'event-loop'], worker: ['worker', '워커'], os: ['any', '커널 · 클라이언트'] };
+
+  function buildW(sc) {
+    const cap = sc.cap;
+    let out = [], sb = [], recv = '', ops = false, enqCount = 0, prevResp = '';
+    const steps = [];
+    const snap = (o) => steps.push(Object.assign({
+      on: [], thread: 'loop', path: ['loop()'], hl: {}
+    }, o, { cap, recv, ops, out: out.map(b => ({ s: b.s, pos: b.pos })), sb: sb.slice() }));
+
+    snap({ ctx: 'loop', on: [338], title: '응답이 생기기 전',
+      desc: `event-loop가 select()에서 잠들어 있습니다. out 대기열은 비어 있고 interestOps는 OP_READ뿐입니다. 송신 버퍼는 ${cap}칸으로 줄였습니다.` });
+
+    const enqueueSteps = (resp) => {
+      const s = resp + '\n';
+      out.push({ s, pos: 0 });
+      snap({ ctx: 'enqueue', on: [437, 440, 441], path: ['loop()', 'runTasks()', 'enqueue()'],
+        title: `enqueue(key, "${resp}")`,
+        desc: `키가 아직 유효한지 확인하고(그사이 연결이 끊겼으면 버림), 응답 끝에 \\n을 붙여 ByteBuffer.wrap으로 감싼 뒤 out 대기열 끝에 넣습니다. wrap한 버퍼는 position = 0, limit = ${s.length}라서 바로 쓸 수 있습니다.`,
+        hl: { buf: out.length - 1, range: [0, s.length] } });
+      snap({ ctx: 'enqueue', on: [443], path: ['loop()', 'runTasks()', 'enqueue()'],
+        title: ops ? 'OP_WRITE 그대로' : 'OP_WRITE 켬',
+        desc: ops ? '이미 켜져 있어 OR 연산 결과가 같습니다. 응답은 대기열 순서대로 나갑니다.'
+                  : 'interestOps에 OP_WRITE를 더합니다. 다음 select()는 송신 버퍼에 빈칸이 있으면 바로 반환됩니다.' });
+      ops = true;
+    };
+
+    const enqFull = (input) => {
+      const resp = input.toUpperCase();
+      snap({ ctx: 'read', on: [405, 408], path: ['loop()', 'read(key)'],
+        title: `read(): 줄 "${input}" 완성`,
+        desc: `출발점은 read()입니다. 클라이언트가 보낸 "${input}\\n"을 '\\n'에서 잘라 dispatch(key, c, "${input}")를 부릅니다. 위의 read 시뮬레이터에서 본 부분입니다.` });
+      snap({ ctx: 'dispatch', on: [428, 433], path: ['loop()', 'read(key)', 'dispatch()'],
+        title: 'dispatch(): 워커에 맡김',
+        desc: 'c.chain 뒤에 람다를 붙여 workers 풀에 넘기고 바로 반환합니다. event-loop는 handler 결과를 기다리지 않고 다음 일을 합니다. 워커 수가 1 이상이므로 if (workers == null) 분기는 건너뜁니다.' });
+      snap({ ctx: 'dispatch', on: [429], thread: 'worker', path: ['thenRunAsync 람다'],
+        title: `handler.apply("${input}") → "${resp}"`,
+        desc: `여기부터 워커 스레드입니다. handler(이 예시에서는 String::toUpperCase)가 응답 "${resp}"를 만듭니다. DB 조회처럼 느린 로직이 있다면 여기서 시간을 씁니다.` });
+      snap({ ctx: 'dispatch', on: [430], thread: 'worker', path: ['thenRunAsync 람다'],
+        title: 'tasks.add(() -> enqueue(key, response))',
+        desc: `워커는 out 대기열을 직접 만지지 않습니다. "enqueue(key, "${resp}")를 실행해 달라"는 Runnable을 tasks 큐에 넣기만 합니다. enqueue는 아직 실행되지 않았습니다.` });
+      snap({ ctx: 'dispatch', on: [432], thread: 'worker', path: ['thenRunAsync 람다'],
+        title: 'selector.wakeup()',
+        desc: 'event-loop가 select()에서 잠들어 있을 수 있으니 깨웁니다. 깨우지 않으면 다른 이벤트가 올 때까지 응답이 tasks 큐에 묶여 있습니다.' });
+      snap({ ctx: 'loop', on: [338, 340], path: ['loop()'],
+        title: 'select() 반환 → runTasks()',
+        desc: '다시 event-loop 스레드입니다. wakeup() 때문에 준비된 키가 없어도 select()가 반환되고, 바로 다음 줄에서 runTasks()를 부릅니다.' });
+      snap({ ctx: 'runTasks', on: [378, 379], path: ['loop()', 'runTasks()'],
+        title: 'task.run()',
+        desc: `tasks에서 꺼낸 Runnable을 실행합니다. 그 내용이 enqueue(key, "${resp}")입니다. 그래서 enqueue는 워커가 아니라 event-loop 스레드에서 실행됩니다.` });
+      enqueueSteps(resp);
+      prevResp = resp;
+    };
+
+    const enqShort = (input) => {
+      const resp = input.toUpperCase();
+      snap({ ctx: 'dispatch', on: [429, 430, 432], thread: 'worker', path: ['thenRunAsync 람다'],
+        title: `"${input}"도 같은 경로로`,
+        desc: `클라이언트가 이어 보낸 "${input}\\n"도 read → dispatch → 워커(handler → tasks.add → wakeup)를 똑같이 거칩니다. chain으로 이어져 있어 "${prevResp}" 처리가 끝난 뒤에 실행됩니다. 여기서는 write가 시작되기 전에 두 응답이 모두 대기열에 들어왔다고 가정합니다.` });
+      snap({ ctx: 'runTasks', on: [378, 379], path: ['loop()', 'runTasks()'],
+        title: 'task.run()',
+        desc: `event-loop가 runTasks()에서 이번 Runnable을 꺼내 enqueue(key, "${resp}")를 실행합니다.` });
+      enqueueSteps(resp);
+      prevResp = resp;
+    };
+
+    const round = () => {
+      snap({ ctx: 'loop', on: [338, 356, 357], path: ['loop()'],
+        title: 'select() 반환 → write(key)',
+        desc: `OP_WRITE가 켜져 있고 송신 버퍼에 빈칸이 ${cap - sb.length}칸 있어 isWritable()이 true입니다. event-loop가 write(key)를 호출합니다.` });
+      const wp = ['loop()', 'write(key)'];
+      while (out.length) {
+        const b = out[0], len = b.s.length;
+        snap({ ctx: 'write', on: [449, 450], path: wp, title: 'peek()',
+          desc: `대기열 맨 앞 버퍼를 꺼내지 않고 봅니다. 다 쓰기 전에 빼면 남은 바이트를 잃기 때문입니다. 남은 바이트 ${len - b.pos}개 (position ${b.pos}, limit ${len}).`,
+          hl: { buf: 0, range: [b.pos, len] } });
+        const free = cap - sb.length, rem = len - b.pos, n = Math.min(free, rem), from = b.pos;
+        for (let j = 0; j < n; j++) sb.push(b.s[from + j]);
+        b.pos += n;
+        snap({ ctx: 'write', on: [451], path: wp, title: `ch.write(buf) → ${n}바이트`,
+          desc: n < rem ? `송신 버퍼 빈칸이 ${free}칸뿐이라 ${n}바이트만 들어갔습니다. 논블로킹이므로 기다리지 않고 바로 반환합니다. buf의 position이 ${from} → ${b.pos}로 움직입니다.`
+                        : `남은 ${n}바이트가 모두 송신 버퍼에 들어갔습니다. position ${from} → ${b.pos}.`,
+          hl: { buf: 0, range: [from, b.pos], sb: [sb.length - n, sb.length] } });
+        if (b.pos < len) {
+          snap({ ctx: 'write', on: [452, 454], path: wp, title: 'hasRemaining() → return',
+            desc: `아직 ${len - b.pos}바이트가 남았습니다. 버퍼를 대기열에 둔 채 반환하고 OP_WRITE도 켜 둡니다. 송신 버퍼에 빈칸이 생기면 select()가 다시 깨우고, 그때 position ${b.pos}부터 이어 씁니다.`,
+            hl: { buf: 0, range: [b.pos, len] } });
+          return;
+        }
+        out.shift();
+        snap({ ctx: 'write', on: [452, 456], path: wp, title: 'poll()',
+          desc: `hasRemaining()이 false이니 대기열에서 뺍니다. ${out.length ? 'while로 돌아가 다음 응답을 씁니다.' : '대기열이 비었습니다.'}` });
+      }
+      ops = false;
+      snap({ ctx: 'write', on: [449, 459], path: wp, title: 'OP_WRITE 끔',
+        desc: 'while을 빠져나왔습니다. 보낼 게 없으니 interestOps에서 OP_WRITE를 뺍니다. 이제 송신 버퍼에 빈칸이 있어도 select()는 이 키 때문에 깨어나지 않습니다.' });
+    };
+
+    sc.acts.forEach(([kind, arg]) => {
+      if (kind === 'enq') {
+        (enqCount++ === 0 ? enqFull : enqShort)(arg);
+      } else if (kind === 'round') {
+        round();
+      } else if (kind === 'blocked') {
+        snap({ ctx: 'loop', on: [338], title: 'select()에서 잠듦',
+          desc: 'write()에서 돌아와 다시 select()에 들어갔습니다. OP_WRITE는 켜져 있지만 송신 버퍼에 빈칸이 없어서 "쓰기 가능"이 아닙니다. 그래서 스핀하지 않고 잠듭니다. 그동안 다른 연결의 이벤트는 계속 처리합니다.' });
+      } else if (kind === 'peer') {
+        const got = sb.join('');
+        recv += got; sb = [];
+        snap({ ctx: 'loop', on: [338], thread: 'os', path: ['송신 버퍼 → 상대'],
+          title: `상대가 ${got.length}바이트 읽음`,
+          desc: '클라이언트가 읽어서 송신 버퍼가 비었습니다. event-loop 코드는 실행되지 않고, 커널이 준비 상태만 바꿉니다. ' +
+            (ops ? 'OP_WRITE가 켜진 이 키는 다음 select()에서 깨어나 남은 바이트를 씁니다.'
+                 : 'OP_WRITE가 꺼져 있으므로 버퍼가 비어도 select()는 깨어나지 않습니다.') });
+      }
+    });
+    return steps;
+  }
+
+  /* 두 시뮬레이터가 함께 쓰는 코드 패널 렌더러: 스레드·호출 경로 + 원본 코드(줄 번호) */
+  function renderCode(view, stackId, capId, codeId) {
+    const sn = SNIP[view.ctx];
+    const [pillCls, pillText] = THREAD[view.thread];
+    $(stackId).innerHTML = `<span class="pill ${pillCls}">${pillText}</span><span class="path">${esc(view.path.join(' › '))}</span>`;
+    $(capId).textContent = `LineEchoServer.java · ${sn.name} · ${sn.range}`;
+    $(codeId).innerHTML = sn.lines.map(([no, t]) => {
+      const cmt = no === null || t.trim().startsWith('//');
+      return `<span class="ln${cmt ? ' cmt' : ''}${no !== null && view.on.includes(no) ? ' on' : ''}"><i class="no">${no === null ? '' : no}</i>${esc(t)}</span>`;
+    }).join('');
+  }
+
+  let wsteps = [], wcur = 0;
+  const inRange = (r, i) => r && i >= r[0] && i < r[1];
+
+  function renderW() {
+    const st = wsteps[wcur];
+    $('wcount').textContent = `${wcur + 1} / ${wsteps.length}`;
+    $('wprev').disabled = wcur === 0;
+    $('wnext').disabled = wcur === wsteps.length - 1;
+    $('w-title').textContent = st.title;
+    const chip = $('w-ops');
+    chip.className = 'mode ' + (st.ops ? 'read' : 'write');
+    chip.textContent = st.ops ? 'OP_READ | OP_WRITE' : 'OP_READ';
+    $('w-desc').textContent = st.desc;
+
+    $('w-out').innerHTML = st.out.length ? st.out.map((b, bi) => {
+      const len = b.s.length;
+      let cells = '', marks = '';
+      for (let j = 0; j < len; j++) {
+        let cls = 'cell ' + (j < b.pos ? 'consumed' : 'unread');
+        if (st.hl.buf === bi && inRange(st.hl.range, j)) cls += ' hl';
+        const ch = b.s[j];
+        if (ch === '\n') cls += ' nl';
+        cells += `<div class="${cls}">${ch === '\n' ? '\\n' : esc(ch)}</div>`;
+      }
+      for (let j = 0; j <= 16; j++) {
+        const p = b.pos === j, l = len === j;
+        marks += `<span>${p ? '<span class="p">▲P</span>' : ''}${p && l ? '<br>' : ''}${l ? '<span class="l">▲L</span>' : ''}</span>`;
+      }
+      return `<div class="wq-row"><span class="wq-head">out[${bi}]${bi === 0 ? ' · <b>peek() 대상</b>' : ''} · ${len - b.pos}바이트 남음</span>` +
+        `<div class="cells">${cells}</div><div class="marks">${marks}</div></div>`;
+    }).join('') : '<div class="empty">비어 있음</div>';
+
+    $('w-sb-label').innerHTML = `<b>소켓 송신 버퍼</b> (커널) · ${st.sb.length} / ${st.cap}칸 사용`;
+    let sbc = '';
+    for (let j = 0; j < st.cap; j++) {
+      const ch = st.sb[j];
+      let cls = 'cell ' + (ch === undefined ? 'free' : 'live');
+      if (inRange(st.hl.sb, j)) cls += ' hl';
+      if (ch === '\n') cls += ' nl';
+      sbc += `<div class="${cls}">${ch === undefined ? '' : (ch === '\n' ? '\\n' : esc(ch))}</div>`;
+    }
+    $('w-sb').innerHTML = sbc;
+
+    $('w-recv').innerHTML = st.recv ? `<span class="recv">${esc(show(st.recv))}</span>` : '<span class="empty">아직 없음</span>';
+
+    renderCode(st, 'wstack', 'wcap', 'wcode');
+  }
+
+  function loadW(name) {
+    wsteps = buildW(W_SCEN[name]); wcur = 0;
+    document.querySelectorAll('[data-wsc]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.wsc === name)));
+    renderW();
+  }
+  document.querySelectorAll('[data-wsc]').forEach(b => b.addEventListener('click', () => loadW(b.dataset.wsc)));
+  $('wprev').addEventListener('click', () => { if (wcur > 0) { wcur--; renderW(); } });
+  $('wnext').addEventListener('click', () => { if (wcur < wsteps.length - 1) { wcur++; renderW(); } });
+  $('wsim').addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' && wcur < wsteps.length - 1) { wcur++; renderW(); }
+    if (e.key === 'ArrowLeft' && wcur > 0) { wcur--; renderW(); }
+  });
+  loadW('fit');
+  load('split'); // SNIP·THREAD가 초기화된 뒤에 첫 렌더링
 })();
 </script>
 
