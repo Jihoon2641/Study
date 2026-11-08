@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>LineEchoServer 구조도</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 한 열 문서. 섹션마다 넓은 그림 하나 + 짧은 설명. 색은 "누가 실행하나"(스레드)를 뜻한다. */
+:root {
+  --bg: #F2F4F7;
+  --surface: #FFFFFF;
+  --ink: #17202B;
+  --muted: #5A6777;
+  --line: #D2D9E3;
+  --code: #EAEEF4;
+  --loop: #2353C0;
+  --loop-tint: #E3EBFA;
+  --worker: #9E5A00;
+  --worker-tint: #FAEDD9;
+  --os: #2D7360;
+  --os-tint: #DFEFE8;
+  --warn: #B3322A;
+  --warn-tint: #FAE4E1;
+  --hl: #FFE27A;
+  --f-display: "Black Han Sans", "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+  --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, "D2Coding", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131A; --surface: #151C26; --ink: #E3E9F1; --muted: #97A3B4; --line: #2A3441; --code: #1B2330;
+    --loop: #82A6FF; --loop-tint: #1A2643; --worker: #F0B256; --worker-tint: #33260F; --os: #71C8A9; --os-tint: #12302A;
+    --warn: #FF857C; --warn-tint: #3A1B19; --hl: #6E5C10;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131A; --surface: #151C26; --ink: #E3E9F1; --muted: #97A3B4; --line: #2A3441; --code: #1B2330;
+  --loop: #82A6FF; --loop-tint: #1A2643; --worker: #F0B256; --worker-tint: #33260F; --os: #71C8A9; --os-tint: #12302A;
+  --warn: #FF857C; --warn-tint: #3A1B19; --hl: #6E5C10;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 15px;
+  line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+main { max-width: 1080px; margin: 0 auto; display: grid; gap: 56px; }
+code, .mono { font-family: var(--f-mono); font-size: 0.88em; }
+p code, li code, td code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+
+header { display: grid; gap: 14px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; font-family: var(--f-mono); }
+h1 { font-family: var(--f-display); font-weight: 400; font-size: clamp(34px, 6vw, 54px); line-height: 1.1; letter-spacing: -0.01em; }
+.lede { max-width: 66ch; color: var(--muted); font-size: 16px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; }
+.sw.loop { background: var(--loop-tint); border-color: var(--loop); }
+.sw.worker { background: var(--worker-tint); border-color: var(--worker); }
+.sw.os { background: var(--os-tint); border-color: var(--os); }
+.sw.caller { background: var(--surface); border-color: var(--muted); }
+
+section { display: grid; gap: 18px; }
+.sec-head { display: grid; gap: 6px; }
+h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.sec-head p { color: var(--muted); max-width: 70ch; }
+.ref { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+.figure svg { display: block; width: 100%; min-width: 820px; height: auto; }
+.figure.pad { padding: 8px; }
+
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 28px; padding: 0; margin: 0; list-style: none; }
+.notes li { min-width: 0; font-size: 14px; }
+.notes b { display: block; font-size: 14px; margin-bottom: 2px; }
+
+/* SVG */
+.t { fill: var(--ink); font-family: var(--f-body); font-size: 13px; }
+.tb { font-weight: 700; }
+.tm { fill: var(--ink); font-family: var(--f-mono); font-size: 12px; }
+.ts { fill: var(--muted); font-family: var(--f-body); font-size: 11.5px; }
+.th { fill: var(--muted); font-family: var(--f-body); font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; }
+.halo { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.z-os { fill: var(--os-tint); }
+.z-loop { fill: var(--loop-tint); }
+.z-worker { fill: var(--worker-tint); }
+.bx { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.bx-os { fill: var(--surface); stroke: var(--os); stroke-width: 1.3; }
+.bx-loop { fill: var(--surface); stroke: var(--loop); stroke-width: 1.3; }
+.bx-worker { fill: var(--surface); stroke: var(--worker); stroke-width: 1.3; }
+.bx-sel { fill: var(--os-tint); stroke: var(--os); stroke-width: 2; }
+.bx-conn { fill: var(--surface); stroke: var(--loop); stroke-width: 1.3; stroke-dasharray: 5 4; }
+.row { fill: var(--loop-tint); stroke: none; }
+.slot { fill: var(--surface); stroke: var(--worker); stroke-width: 1; }
+.slot.full { fill: var(--worker); fill-opacity: 0.35; }
+.a { fill: none; stroke-width: 1.6; }
+.a-os { stroke: var(--os); }
+.a-loop { stroke: var(--loop); }
+.a-worker { stroke: var(--worker); }
+.a-ink { stroke: var(--muted); }
+.dash { stroke-dasharray: 5 4; }
+.lifeline { stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 4 5; }
+.lane { stroke-width: 1.4; }
+.lane-os { fill: var(--os-tint); stroke: var(--os); }
+.lane-loop { fill: var(--loop-tint); stroke: var(--loop); }
+.lane-worker { fill: var(--worker-tint); stroke: var(--worker); }
+.num { stroke-width: 1.2; }
+.num-os { fill: var(--os-tint); stroke: var(--os); }
+.num-loop { fill: var(--loop-tint); stroke: var(--loop); }
+.num-worker { fill: var(--worker-tint); stroke: var(--worker); }
+.st { fill: var(--surface); stroke-width: 1.6; }
+.st-a { stroke: var(--os); }
+.st-b { stroke: var(--loop); fill: var(--loop-tint); }
+
+/* Flow */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: f; }
+.flow > li { position: relative; padding: 0 0 18px 44px; min-width: 0; }
+.flow > li::before {
+  counter-increment: f; content: counter(f);
+  position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font: 600 12px var(--f-mono);
+  background: var(--loop-tint); color: var(--loop); border: 1.5px solid var(--loop);
+}
+.flow > li::after { content: ""; position: absolute; left: 14px; top: 30px; bottom: 2px; width: 1.5px; background: var(--line); }
+.flow > li:last-child::after { display: none; }
+.fhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-height: 28px; }
+.fhead code { font-size: 14px; font-weight: 600; background: none; padding: 0; }
+.fhead .ref { margin-left: auto; }
+.flow p { color: var(--muted); font-size: 14px; max-width: 72ch; }
+.flow p.danger { color: var(--warn); }
+.branches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.branch { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.branch .if { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.branch .call { font-family: var(--f-mono); font-size: 14px; font-weight: 600; }
+.branch p { font-size: 13.5px; }
+.flow > li.back::before { content: "↻"; font-size: 15px; background: var(--surface); color: var(--muted); border-color: var(--muted); }
+@media (max-width: 680px) { .branches { grid-template-columns: 1fr; } .fhead .ref { margin-left: 0; } }
+
+/* Buffer simulator */
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 18px; }
+.sim-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--code); padding: 4px; border-radius: 9px; }
+.seg button, .nav button {
+  font: 500 13px var(--f-body); color: var(--ink); background: transparent; border: 0; border-radius: 6px;
+  padding: 6px 12px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--loop); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+.nav { display: inline-flex; align-items: center; gap: 8px; }
+.nav button { border: 1px solid var(--line); background: var(--surface); }
+.nav button:disabled { opacity: 0.4; cursor: default; }
+.nav .count { font: 500 13px var(--f-mono); color: var(--muted); min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+button:focus-visible { outline: 2px solid var(--loop); outline-offset: 2px; }
+
+.sim-body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 860px) { .sim-body { grid-template-columns: 1fr; } }
+.sim-left { display: grid; gap: 14px; min-width: 0; align-content: start; }
+.step-title { font-size: 17px; font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.mode { font: 500 12px var(--f-body); padding: 2px 9px; border-radius: 99px; border: 1px solid; }
+.mode.write { color: var(--os); border-color: var(--os); background: var(--os-tint); }
+.mode.read { color: var(--loop); border-color: var(--loop); background: var(--loop-tint); }
+.mode.closed { color: var(--warn); border-color: var(--warn); background: var(--warn-tint); }
+.step-desc { font-size: 14px; color: var(--muted); min-height: 3.3em; }
+
+.buf { display: grid; gap: 4px; }
+.cells, .marks, .idx { display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 3px; }
+.cell {
+  aspect-ratio: 1 / 1.25; max-width: 100%; border-radius: 4px; border: 1px solid var(--line);
+  display: grid; place-items: center; font: 600 13px var(--f-mono); color: var(--ink); background: var(--surface);
+}
+.cell.live { background: var(--os-tint); border-color: var(--os); }
+.cell.unread { background: var(--loop-tint); border-color: var(--loop); }
+.cell.consumed { color: var(--muted); opacity: 0.55; text-decoration: line-through; }
+.cell.free { color: var(--muted); opacity: 0.45; border-style: dashed; }
+.cell.beyond { color: var(--muted); opacity: 0.4; background: repeating-linear-gradient(135deg, transparent 0 4px, var(--code) 4px 8px); }
+.cell.hl { background: var(--hl); border-color: var(--ink); opacity: 1; text-decoration: none; color: var(--ink); }
+.cell.nl { font-size: 10px; }
+.cell.end { border: 0; background: none; font: 400 10px var(--f-mono); color: var(--muted); }
+.idx span { text-align: center; font: 400 10px var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.marks span { text-align: center; font: 600 11px var(--f-mono); line-height: 1.2; min-height: 30px; }
+.marks .p { color: var(--loop); }
+.marks .l { color: var(--worker); }
+.buf-key { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.buf-key i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; border: 1px solid; vertical-align: -1px; margin-right: 5px; }
+
+.out { display: grid; gap: 6px; }
+.out-label { font-size: 12px; color: var(--muted); }
+.out-list { display: flex; flex-wrap: wrap; gap: 6px; min-height: 28px; }
+.out-list span { font: 500 13px var(--f-mono); padding: 3px 10px; border-radius: 6px; background: var(--worker-tint); color: var(--ink); border: 1px solid var(--worker); }
+.out-list em { font-style: normal; font-size: 13px; color: var(--muted); }
+
+.codebox { background: var(--code); border-radius: 10px; padding: 12px 0; overflow-x: auto; min-width: 0; align-self: start; }
+.codebox .cap { font-size: 12px; color: var(--muted); padding: 0 14px 8px; font-family: var(--f-body); }
+.codebox pre { margin: 0; font: 12.5px/1.75 var(--f-mono); }
+.codebox .ln { display: block; padding: 0 14px; white-space: pre; border-left: 3px solid transparent; color: var(--muted); }
+.codebox .ln.on { background: var(--surface); color: var(--ink); border-left-color: var(--loop); font-weight: 600; }
+
+/* interestOps */
+.ops { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+@media (max-width: 860px) { .ops { grid-template-columns: 1fr; } }
+.ops .figure svg { min-width: 640px; }
+.stats { display: grid; gap: 12px; align-content: start; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 4px; }
+.stat b { font: 600 28px var(--f-mono); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat.bad b { color: var(--warn); }
+.stat.good b { color: var(--os); }
+.stat span { font-size: 13.5px; color: var(--muted); }
+.src { font-size: 12px; color: var(--muted); }
+
+/* tables */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-family: var(--f-mono); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 99px; border: 1px solid; white-space: nowrap; }
+.pill.loop { color: var(--loop); border-color: var(--loop); background: var(--loop-tint); }
+.pill.worker { color: var(--worker); border-color: var(--worker); background: var(--worker-tint); }
+.pill.caller { color: var(--muted); border-color: var(--muted); }
+.pill.any { color: var(--os); border-color: var(--os); background: var(--os-tint); }
+
+.shared { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.shared div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13.5px; color: var(--muted); min-width: 0; }
+.shared code { display: block; font-size: 13px; color: var(--ink); background: none; padding: 0; margin-bottom: 4px; font-weight: 600; }
+
+/* caveats */
+.cav { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--line); }
+.cav li { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 4px 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.cav .tag { font-size: 12px; font-weight: 700; color: var(--warn); padding-top: 2px; }
+.cav h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 4px; }
+.cav p { color: var(--muted); font-size: 14px; max-width: 74ch; }
+@media (max-width: 520px) { .cav li { grid-template-columns: 1fr; } }
+
+footer { color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) { .cell { transition: background-color .18s, border-color .18s; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="m-os" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--os)"/></marker>
+    <marker id="m-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--loop)"/></marker>
+    <marker id="m-worker" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--worker)"/></marker>
+    <marker id="m-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/></marker>
+  </defs>
+</svg>
+
+<main>
+  <header>
+    <div class="eyebrow">java.nio.channels · NIO셀렉터-예제.md 262–495줄</div>
+    <h1>LineEchoServer 구조도</h1>
+    <p class="lede">스레드 하나(이벤트 루프)가 모든 연결의 I/O를 맡고, 느릴 수 있는 handler는 워커 풀에서 실행하는 줄(<code>\n</code>) 단위 TCP 서버입니다. 그림의 색은 그 일을 <b>어느 스레드가 실행하는지</b>를 나타냅니다.</p>
+    <div class="legend" aria-label="색 범례">
+      <span><i class="sw loop"></i>event-loop 스레드</span>
+      <span><i class="sw worker"></i>워커 스레드</span>
+      <span><i class="sw os"></i>커널 · 채널 · Selector</span>
+      <span><i class="sw caller"></i>호출자 스레드 (생성자, close)</span>
+    </div>
+  </header>
+
+  <!-- 1. 전체 구조 -->
+  <section>
+    <div class="sec-head">
+      <h2>전체 구조</h2>
+      <p>클라이언트 연결은 모두 Selector 하나에 등록됩니다. event-loop는 준비된 채널만 골라 처리하고, 완성된 줄은 워커에게 넘깁니다. 워커는 결과를 연결에 직접 쓰지 않고 <code>tasks</code> 큐에 넣은 뒤 <code>wakeup()</code>으로 루프를 깨웁니다.</p>
+    </div>
+    <div class="figure">
+      <svg viewBox="0 0 960 490" role="img" aria-label="클라이언트, 채널과 Selector, event-loop 스레드, 워커 스레드의 관계도">
+        <text class="th" x="80" y="24" text-anchor="middle">클라이언트</text>
+        <text class="th" x="285" y="24" text-anchor="middle">커널 · 채널</text>
+        <text class="th" x="545" y="24" text-anchor="middle">event-loop 스레드 (1개)</text>
+        <text class="th" x="820" y="24" text-anchor="middle">워커 스레드</text>
+
+        <rect class="z-os" x="180" y="36" width="210" height="444" rx="12"/>
+        <rect class="z-loop" x="420" y="36" width="250" height="444" rx="12"/>
+        <rect class="z-worker" x="700" y="36" width="240" height="444" rx="12"/>
+
+        <!-- clients -->
+        <rect class="bx" x="20" y="118" width="120" height="44" rx="8"/>
+        <text class="t" x="80" y="145" text-anchor="middle">클라이언트 A</text>
+        <rect class="bx" x="20" y="180" width="120" height="44" rx="8"/>
+        <text class="t" x="80" y="207" text-anchor="middle">클라이언트 B</text>
+        <rect class="bx" x="20" y="242" width="120" height="44" rx="8"/>
+        <text class="t" x="80" y="269" text-anchor="middle">클라이언트 C</text>
+        <path class="a a-ink dash" d="M80 116 V76 H193" marker-end="url(#m-ink)"/>
+        <text class="ts" x="88" y="100">connect</text>
+        <path class="a a-os" d="M142 140 H193" marker-start="url(#m-os)" marker-end="url(#m-os)"/>
+        <path class="a a-os" d="M142 202 H193" marker-start="url(#m-os)" marker-end="url(#m-os)"/>
+        <path class="a a-os" d="M142 264 H193" marker-start="url(#m-os)" marker-end="url(#m-os)"/>
+
+        <!-- channels -->
+        <rect class="bx-os" x="195" y="50" width="180" height="52" rx="8"/>
+        <text class="tm" x="285" y="72" text-anchor="middle">ServerSocketChannel</text>
+        <text class="ts" x="285" y="91" text-anchor="middle">OP_ACCEPT · 127.0.0.1:0</text>
+        <rect class="bx-os" x="195" y="118" width="180" height="44" rx="8"/>
+        <text class="tm" x="285" y="137" text-anchor="middle">SocketChannel A</text>
+        <text class="ts" x="285" y="153" text-anchor="middle">OP_READ</text>
+        <rect class="bx-os" x="195" y="180" width="180" height="44" rx="8"/>
+        <text class="tm" x="285" y="199" text-anchor="middle">SocketChannel B</text>
+        <text class="ts" x="285" y="215" text-anchor="middle">OP_READ | OP_WRITE</text>
+        <rect class="bx-os" x="195" y="242" width="180" height="44" rx="8"/>
+        <text class="tm" x="285" y="261" text-anchor="middle">SocketChannel C</text>
+        <text class="ts" x="285" y="277" text-anchor="middle">OP_READ</text>
+
+        <!-- register bus -->
+        <path class="a a-os" d="M375 76 H383 M375 140 H383 M375 202 H383 M375 264 H383"/>
+        <path class="a a-os" d="M383 76 V312 H285 V328" marker-end="url(#m-os)"/>
+
+        <rect class="bx-sel" x="195" y="330" width="180" height="80" rx="10"/>
+        <text class="tm tb" x="285" y="355" text-anchor="middle">Selector</text>
+        <text class="t" x="285" y="375" text-anchor="middle">준비된 키를 모은다</text>
+        <text class="ts" x="285" y="395" text-anchor="middle">WEPoll / epoll / kqueue</text>
+        <text class="ts" x="285" y="436" text-anchor="middle">채널마다 register 한 번</text>
+        <text class="ts" x="285" y="454" text-anchor="middle">→ SelectionKey 생성</text>
+
+        <!-- selector → select() -->
+        <path class="a a-os" d="M375 352 H405 V82 H438" marker-end="url(#m-os)"/>
+        <text class="ts halo" x="399" y="230" text-anchor="middle" transform="rotate(-90 399 230)">준비되면 select() 반환</text>
+
+        <!-- event loop -->
+        <rect class="bx-loop" x="440" y="56" width="210" height="40" rx="8"/>
+        <text class="tm" x="545" y="81" text-anchor="middle">selector.select()</text>
+        <rect class="bx-loop" x="440" y="112" width="210" height="40" rx="8"/>
+        <text class="tm" x="545" y="137" text-anchor="middle">runTasks()</text>
+        <rect class="bx-loop" x="440" y="168" width="210" height="40" rx="8"/>
+        <text class="t" x="545" y="193" text-anchor="middle">키 순회 · it.remove()</text>
+        <rect class="bx-loop" x="440" y="224" width="66" height="36" rx="7"/>
+        <text class="tm" x="473" y="247" text-anchor="middle">accept</text>
+        <rect class="bx-loop" x="512" y="224" width="66" height="36" rx="7"/>
+        <text class="tm" x="545" y="247" text-anchor="middle">read</text>
+        <rect class="bx-loop" x="584" y="224" width="66" height="36" rx="7"/>
+        <text class="tm" x="617" y="247" text-anchor="middle">write</text>
+        <path class="a a-loop" d="M545 96 V110" marker-end="url(#m-loop)"/>
+        <path class="a a-loop" d="M545 152 V166" marker-end="url(#m-loop)"/>
+        <path class="a a-loop" d="M545 208 V222" marker-end="url(#m-loop)"/>
+        <text class="ts" x="535" y="285" text-anchor="end">↻ while (running)</text>
+
+        <rect class="bx-conn" x="440" y="300" width="210" height="160" rx="10"/>
+        <text class="tm tb" x="452" y="321">Connection</text>
+        <text class="ts" x="640" y="321" text-anchor="end">attachment</text>
+        <rect class="row" x="452" y="332" width="186" height="32" rx="5"/>
+        <text class="tm" x="462" y="352">in    ByteBuffer 8KB</text>
+        <rect class="row" x="452" y="372" width="186" height="32" rx="5"/>
+        <text class="tm" x="462" y="392">out   Queue&lt;ByteBuffer&gt;</text>
+        <rect class="row" x="452" y="412" width="186" height="32" rx="5"/>
+        <text class="tm" x="462" y="432">chain CompletableFuture</text>
+        <path class="a a-loop" d="M556 262 V330" marker-end="url(#m-loop)"/>
+
+        <!-- chain → workers -->
+        <path class="a a-loop" d="M638 428 H686 V300 H714" marker-end="url(#m-loop)"/>
+        <text class="ts halo" x="681" y="364" text-anchor="middle" transform="rotate(-90 681 364)">thenRunAsync</text>
+
+        <!-- worker zone -->
+        <rect class="bx-worker" x="716" y="50" width="208" height="74" rx="8"/>
+        <text class="tm tb" x="728" y="71">tasks</text>
+        <text class="ts" x="912" y="71" text-anchor="end">ConcurrentLinkedQueue</text>
+        <rect class="slot full" x="728" y="84" width="32" height="26" rx="4"/>
+        <rect class="slot full" x="766" y="84" width="32" height="26" rx="4"/>
+        <rect class="slot" x="804" y="84" width="32" height="26" rx="4"/>
+        <rect class="slot" x="842" y="84" width="32" height="26" rx="4"/>
+        <rect class="slot" x="880" y="84" width="32" height="26" rx="4"/>
+
+        <rect class="bx-worker" x="716" y="200" width="208" height="190" rx="8"/>
+        <text class="tm tb" x="728" y="222">workers</text>
+        <text class="ts" x="912" y="222" text-anchor="end">ExecutorService</text>
+        <rect class="z-worker" x="728" y="236" width="90" height="44" rx="6"/>
+        <text class="t" x="773" y="263" text-anchor="middle">워커 1</text>
+        <rect class="z-worker" x="822" y="236" width="90" height="44" rx="6"/>
+        <text class="t" x="867" y="263" text-anchor="middle">워커 2</text>
+        <rect class="z-worker" x="728" y="290" width="90" height="44" rx="6"/>
+        <text class="t" x="773" y="317" text-anchor="middle">워커 3</text>
+        <rect class="z-worker" x="822" y="290" width="90" height="44" rx="6"/>
+        <text class="t" x="867" y="317" text-anchor="middle">워커 4</text>
+        <text class="tm" x="820" y="366" text-anchor="middle">handler.apply(line)</text>
+
+        <path class="a a-worker" d="M820 198 V126" marker-end="url(#m-worker)"/>
+        <text class="ts" x="828" y="166">tasks.add()</text>
+        <path class="a a-worker" d="M714 104 H684 V132 H652" marker-end="url(#m-worker)"/>
+        <path class="a a-worker dash" d="M714 64 H652" marker-end="url(#m-worker)"/>
+        <text class="ts halo" x="683" y="50" text-anchor="middle">selector.wakeup()</text>
+
+        <text class="ts" x="820" y="420" text-anchor="middle">느린 handler는 여기서 실행</text>
+        <text class="ts" x="820" y="440" text-anchor="middle">같은 연결은 chain으로 순서 유지</text>
+      </svg>
+    </div>
+    <ul class="notes">
+      <li><b>생성자</b> <span class="ref">L317–329</span><br>Selector와 서버 소켓을 열고, 논블로킹으로 바꾼 뒤 <code>OP_ACCEPT</code>로 등록합니다. 마지막에 <code>event-loop</code> 스레드를 시작합니다.</li>
+      <li><b>Connection</b> <span class="ref">L308–315</span><br>연결마다 하나씩 키의 attachment로 붙습니다. 읽다 만 줄(<code>in</code>), 못 다 보낸 응답(<code>out</code>), 순서용 체인(<code>chain</code>)을 담습니다.</li>
+      <li><b>워커 → 루프 경로</b> <span class="ref">L428–433</span><br>워커는 연결 상태를 직접 만지지 않습니다. <code>tasks</code>에 작업을 넣고 깨우기만 하므로 <code>Connection</code>에 락이 필요 없습니다.</li>
+    </ul>
+  </section>
+
+  <!-- 2. 이벤트 루프 한 바퀴 -->
+  <section>
+    <div class="sec-head">
+      <h2>이벤트 루프 한 바퀴</h2>
+      <p><code>loop()</code> 메서드(L335–374)가 <code>select()</code>에서 깨어날 때마다 아래 순서로 한 바퀴를 돕니다.</p>
+    </div>
+    <ol class="flow">
+      <li>
+        <div class="fhead"><code>selector.select()</code><span class="ref">L338</span></div>
+        <p>준비된 채널이 생기거나, 다른 스레드가 <code>wakeup()</code>을 부를 때까지 잠듭니다. <code>wakeup()</code>이 먼저 불렸다면 다음 <code>select()</code>가 바로 반환되므로 깨우기 신호를 놓치지 않습니다.</p>
+      </li>
+      <li>
+        <div class="fhead"><code>selectCount.incrementAndGet()</code><span class="ref">L339</span></div>
+        <p>깨어난 횟수를 셉니다. 유휴 상태에서 이 값이 늘면 스핀하고 있다는 뜻입니다.</p>
+      </li>
+      <li>
+        <div class="fhead"><code>runTasks()</code><span class="ref">L340 · L376–381</span></div>
+        <p>워커가 <code>tasks</code>에 넣은 <code>enqueue</code>를 큐가 빌 때까지 실행합니다. <code>wakeup()</code>으로 깨어났다면 준비된 키가 하나도 없을 수 있어서 키 처리보다 먼저 합니다.</p>
+      </li>
+      <li>
+        <div class="fhead"><code>selectedKeys().iterator()</code> → <code>it.remove()</code><span class="ref">L341–345</span></div>
+        <p>이번에 준비된 키만 순회하고, 꺼내자마자 집합에서 지웁니다. Selector는 이 집합을 비워 주지 않습니다.</p>
+        <p class="danger">이 줄이 없는 BadEchoServer는 처리한 accept 키가 남아 <code>accept()</code>가 <code>null</code>을 돌려주고, select 2회 만에 NPE로 죽었습니다.</p>
+      </li>
+      <li>
+        <div class="fhead"><code>if (!key.isValid()) continue;</code><span class="ref">L347</span></div>
+        <p>같은 순회 안에서 이미 닫힌 키는 건너뜁니다. 아래 분기들 앞에서도 <code>isValid()</code>를 다시 확인합니다.</p>
+        <div class="branches">
+          <div class="branch">
+            <span class="if">if (isAcceptable)</span>
+            <span class="call">accept()</span>
+            <span class="ref">L350 · L383–391</span>
+            <p><code>null</code>이 나올 때까지 백로그를 비웁니다. 새 채널을 논블로킹으로 바꾸고 <code>OP_READ</code> + <code>new Connection()</code>으로 등록합니다.</p>
+          </div>
+          <div class="branch">
+            <span class="if">if (isValid &amp;&amp; isReadable)</span>
+            <span class="call">read(key)</span>
+            <span class="ref">L353 · L393–419</span>
+            <p>버퍼에 이어 읽고 <code>\n</code> 단위로 잘라 dispatch합니다. <code>-1</code>이면 닫습니다. 아래 시뮬레이터에서 단계별로 볼 수 있습니다.</p>
+          </div>
+          <div class="branch">
+            <span class="if">if (isValid &amp;&amp; isWritable)</span>
+            <span class="call">write(key)</span>
+            <span class="ref">L356 · L446–460</span>
+            <p><code>out</code> 대기열을 소켓에 씁니다. 덜 썼으면 그대로 두고, 다 썼으면 <code>OP_WRITE</code>를 끕니다.</p>
+          </div>
+        </div>
+        <p style="margin-top:8px">키 하나가 읽기와 쓰기 준비를 동시에 가질 수 있어서 <code>else if</code>가 아니라 <code>if</code> 세 개입니다.</p>
+      </li>
+      <li>
+        <div class="fhead"><code>catch (IOException e) → closeConnection(key)</code><span class="ref">L359–362</span></div>
+        <p>try가 키 하나만 감쌉니다. 상대의 RST 같은 오류가 나도 그 연결만 닫히고 루프는 계속 돕니다.</p>
+      </li>
+      <li class="back">
+        <div class="fhead"><code>while (running)</code><span class="ref">L337 · L367–373</span></div>
+        <p><code>running</code>이 <code>true</code>면 1번으로 돌아갑니다. <code>close()</code>가 <code>false</code>로 바꾸고 깨우면 루프를 빠져나와 <code>finally</code>에서 등록된 모든 키 → Selector → 서버 소켓 순서로 닫습니다.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 3. 요청 하나의 여정 -->
+  <section>
+    <div class="sec-head">
+      <h2>요청 한 줄이 응답이 되기까지</h2>
+      <p>클라이언트가 <code>"hello\n"</code>을 보냈을 때 세 스레드 사이에서 일어나는 일을 순서대로 그렸습니다. 4번 이후 event-loop는 handler를 기다리지 않고 다른 연결을 처리합니다.</p>
+    </div>
+    <div class="figure" id="seq"></div>
+  </section>
+
+  <!-- 4. read() 버퍼 시뮬레이터 -->
+  <section>
+    <div class="sec-head">
+      <h2>read() 안에서 버퍼가 움직이는 모양</h2>
+      <p>연결마다 있는 <code>in</code> 버퍼의 position과 limit이 <code>read → flip → 줄 찾기 → position → compact</code>를 거치며 어떻게 바뀌는지 한 단계씩 넘겨 보세요. 실제 버퍼는 8,192바이트이고, 여기서는 16칸으로 줄였습니다.</p>
+    </div>
+    <div class="sim" id="sim">
+      <div class="sim-bar">
+        <div class="seg" role="group" aria-label="입력 예시">
+          <button type="button" id="sc-split" data-sc="split" aria-pressed="true">나뉘어 도착</button>
+          <button type="button" id="sc-multi" data-sc="multi" aria-pressed="false">한 번에 여러 줄</button>
+          <button type="button" id="sc-long" data-sc="long" aria-pressed="false">줄바꿈 없는 긴 입력</button>
+        </div>
+        <div class="nav">
+          <button type="button" id="prev" aria-label="이전 단계">◀ 이전</button>
+          <span class="count" id="count">1 / 1</span>
+          <button type="button" id="next" aria-label="다음 단계">다음 ▶</button>
+        </div>
+      </div>
+      <div class="sim-body">
+        <div class="sim-left">
+          <div class="step-title"><span id="st-title"></span><span class="mode" id="st-mode"></span></div>
+          <p class="step-desc" id="st-desc"></p>
+          <div class="buf" aria-live="polite">
+            <div class="cells" id="cells"></div>
+            <div class="idx" id="idx"></div>
+            <div class="marks" id="marks"></div>
+          </div>
+          <div class="buf-key">
+            <span><i style="background:var(--os-tint);border-color:var(--os)"></i>채운 데이터 (쓰기 모드)</span>
+            <span><i style="background:var(--loop-tint);border-color:var(--loop)"></i>아직 안 읽은 데이터 (읽기 모드)</span>
+            <span><i style="background:var(--hl);border-color:var(--ink)"></i>이번 단계에서 다룬 구간</span>
+            <span><b style="color:var(--loop)">P</b> position · <b style="color:var(--worker)">L</b> limit</span>
+          </div>
+          <div class="out">
+            <span class="out-label">dispatch된 줄 → 워커로</span>
+            <div class="out-list" id="lines"></div>
+          </div>
+        </div>
+        <div class="codebox">
+          <div class="cap">read(key) 요약 · L396–418</div>
+          <pre id="code"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. OP_WRITE -->
+  <section>
+    <div class="sec-head">
+      <h2>OP_WRITE는 보낼 게 있을 때만 켠다</h2>
+      <p>소켓 송신 버퍼는 평소 거의 비어 있어서 늘 "쓸 수 있음" 상태입니다. <code>OP_WRITE</code>를 켜 두면 할 일이 없어도 <code>select()</code>가 즉시 반환되므로, <code>enqueue()</code>(L443)에서 켜고 <code>write()</code>(L459)에서 끕니다.</p>
+    </div>
+    <div class="ops">
+      <div class="figure pad">
+        <svg viewBox="0 0 800 232" role="img" aria-label="OP_READ 상태와 OP_READ|OP_WRITE 상태 사이의 전이">
+          <path class="a a-ink" d="M10 108 H78" marker-end="url(#m-ink)"/>
+          <text class="ts" x="10" y="98">accept()</text>
+          <rect class="st st-a" x="80" y="80" width="210" height="56" rx="28"/>
+          <text class="tm tb" x="185" y="104" text-anchor="middle">OP_READ</text>
+          <text class="ts" x="185" y="123" text-anchor="middle">보낼 게 없음 · select가 잠든다</text>
+          <rect class="st st-b" x="470" y="80" width="230" height="56" rx="28"/>
+          <text class="tm tb" x="585" y="104" text-anchor="middle">OP_READ | OP_WRITE</text>
+          <text class="ts" x="585" y="123" text-anchor="middle">out 대기열에 응답이 있음</text>
+          <path class="a a-loop" d="M200 78 C270 18, 490 18, 570 78" marker-end="url(#m-loop)"/>
+          <text class="tm halo" x="385" y="22" text-anchor="middle">enqueue(): ops | OP_WRITE</text>
+          <path class="a a-loop" d="M570 138 C490 200, 270 200, 200 138" marker-end="url(#m-loop)"/>
+          <text class="tm halo" x="385" y="210" text-anchor="middle">write(): out이 비면 ops &amp; ~OP_WRITE</text>
+          <path class="a a-loop" d="M700 98 C752 78, 752 140, 702 120" marker-end="url(#m-loop)"/>
+          <text class="ts" x="728" y="166" text-anchor="middle">덜 썼으면 그대로</text>
+        </svg>
+      </div>
+      <div class="stats">
+        <div class="stat bad"><b>1,057,854회</b><span>OP_WRITE를 늘 켜 둔 유휴 연결 1개, 1초 동안 select() 반환. 스레드 CPU 1000ms / 1000ms</span></div>
+        <div class="stat good"><b>0회</b><span>LineEchoServer, 유휴 1초 동안 select() 반환</span></div>
+        <p class="src">예제 문서 6장 실측값 · OpenJDK 25.0.4, Windows 11</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 메서드와 스레드 -->
+  <section>
+    <div class="sec-head">
+      <h2>메서드별 실행 스레드</h2>
+      <p>규칙은 하나입니다. Selector, SelectionKey, Connection은 event-loop만 만집니다. 다른 스레드가 만지는 것은 아래 표의 마지막 칸 네 가지뿐입니다.</p>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>메서드</th><th>실행 스레드</th><th>언제</th><th>하는 일</th></tr></thead>
+        <tbody>
+          <tr><td>생성자</td><td><span class="pill caller">호출자</span></td><td><code>new LineEchoServer(...)</code></td><td>Selector·서버 소켓 열기, OP_ACCEPT 등록, event-loop 시작</td></tr>
+          <tr><td>loop()</td><td><span class="pill loop">event-loop</span></td><td>시작부터 종료까지</td><td>select → runTasks → 키 처리 반복, 종료 시 전부 닫기</td></tr>
+          <tr><td>runTasks()</td><td><span class="pill loop">event-loop</span></td><td>select가 반환될 때마다</td><td>워커가 넘긴 enqueue 실행</td></tr>
+          <tr><td>accept()</td><td><span class="pill loop">event-loop</span></td><td>OP_ACCEPT 준비</td><td>null까지 accept, OP_READ + Connection으로 등록</td></tr>
+          <tr><td>read()</td><td><span class="pill loop">event-loop</span></td><td>OP_READ 준비</td><td>이어 읽기, 줄 자르기, compact, EOF·8KB 초과 시 닫기</td></tr>
+          <tr><td>dispatch()</td><td><span class="pill loop">event-loop</span></td><td>줄이 완성될 때</td><td><code>c.chain</code> 뒤에 handler 작업을 예약</td></tr>
+          <tr><td>└ 람다</td><td><span class="pill worker">워커</span></td><td>앞 요청이 끝난 뒤</td><td><code>handler.apply</code>, <code>tasks.add</code>, <code>wakeup()</code></td></tr>
+          <tr><td>enqueue()</td><td><span class="pill loop">event-loop</span></td><td>runTasks 안 (워커 0개면 read 안)</td><td><code>out</code>에 추가, OP_WRITE 켜기</td></tr>
+          <tr><td>write()</td><td><span class="pill loop">event-loop</span></td><td>OP_WRITE 준비</td><td>대기열 쓰기, 다 쓰면 OP_WRITE 끄기</td></tr>
+          <tr><td>closeConnection()</td><td><span class="pill loop">event-loop</span></td><td>EOF, IOException, 줄 초과</td><td>연결 수 감소, cancel + close</td></tr>
+          <tr><td>close()</td><td><span class="pill caller">호출자</span></td><td>try-with-resources 종료</td><td><code>running = false</code>, wakeup, join(5초), shutdownNow</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="shared">
+      <div><code>tasks</code>워커가 add, event-loop가 poll. 그래서 <code>ConcurrentLinkedQueue</code>입니다.</div>
+      <div><code>selector.wakeup()</code>어느 스레드에서 불러도 안전한 몇 안 되는 Selector 메서드입니다.</div>
+      <div><code>volatile running</code>close() 호출자가 쓰고 event-loop가 읽습니다. 가시성 보장이 필요합니다.</div>
+      <div><code>selectCount · openConnections</code>event-loop가 쓰고 테스트가 읽는 Atomic 카운터입니다.</div>
+    </div>
+  </section>
+
+  <!-- 7. 주의점 -->
+  <section>
+    <div class="sec-head">
+      <h2>코드에서 보이는 주의점</h2>
+      <p>학습용 예제라 문제는 아니지만 실무 코드로 옮길 때 고칠 부분입니다.</p>
+    </div>
+    <ul class="cav">
+      <li><span class="tag">주의 1</span><div><h3>handler가 예외를 던지면 그 연결은 더 응답하지 않는다</h3><p>앞 단계가 예외로 끝나면 <code>thenRunAsync</code>로 붙은 뒤 단계는 실행되지 않고 함께 예외로 완료됩니다. 람다 안에서 <code>try/catch</code>로 오류 응답을 만들거나 <code>handle()</code>로 체인을 복구하세요.</p></div></li>
+      <li><span class="tag">주의 2</span><div><h3>accept()의 IOException이 리스닝 소켓을 닫는다</h3><p>L359의 catch가 서버 키에도 <code>closeConnection(key)</code>를 적용합니다. "Too many open files" 한 번에 서버가 새 연결을 받지 못하게 됩니다. accept 오류는 따로 처리하는 편이 안전합니다.</p></div></li>
+      <li><span class="tag">주의 3</span><div><h3><code>\r</code>을 제거하지 않는다</h3><p>CRLF를 보내는 클라이언트(telnet 등)에서는 줄 끝에 <code>\r</code>이 붙은 채로 handler에 전달됩니다.</p></div></li>
+    </ul>
+  </section>
+
+  <footer>출처: <code>Java,SpringFramework/NIO셀렉터/NIO셀렉터-예제.md</code> 5장 LineEchoServer.java. 줄 번호(L)는 이 Markdown 파일 기준입니다.</footer>
+</main>
+
+<script>
+(function () {
+  /* ---------- 시퀀스 다이어그램 ---------- */
+  const X = { client: 90, sel: 320, loop: 560, worker: 800 };
+  const lanes = [
+    ['client', '클라이언트', 'os'], ['sel', 'Selector · 커널', 'os'],
+    ['loop', 'event-loop', 'loop'], ['worker', '워커', 'worker']
+  ];
+  const rows = [
+    ['client', 'sel', '"hello\\n" 도착 → OP_READ 준비', 'os'],
+    ['sel', 'loop', 'select() 반환', 'os'],
+    ['loop', 'loop', 'read(): in에 이어 쓰고 flip, \\n까지 잘라 "hello"', 'loop'],
+    ['loop', 'worker', 'dispatch → chain.thenRunAsync', 'loop'],
+    ['loop', 'loop', 'compact() 후 다시 select()에서 잠듦', 'loop'],
+    ['worker', 'worker', 'handler.apply("hello")', 'worker'],
+    ['worker', 'loop', 'tasks.add(enqueue) + wakeup()', 'worker'],
+    ['loop', 'loop', 'runTasks → enqueue: out에 추가, OP_WRITE 켬', 'loop'],
+    ['sel', 'loop', 'select() 반환 · 쓰기 가능', 'os'],
+    ['loop', 'client', 'write(): out의 응답을 소켓에 씀', 'loop'],
+    ['loop', 'loop', 'out이 비면 OP_WRITE 끔 → 다시 잠듦', 'loop']
+  ];
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const top = 92, gap = 44, H = top + rows.length * gap + 4;
+  let s = `<svg viewBox="0 0 920 ${H}" role="img" aria-label="요청 hello 하나의 처리 순서">`;
+  lanes.forEach(([k, label, c]) => {
+    const x = X[k];
+    s += `<line class="lifeline" x1="${x}" y1="52" x2="${x}" y2="${H - 6}"/>`;
+    s += `<rect class="lane lane-${c}" x="${x - 74}" y="14" width="148" height="38" rx="8"/>`;
+    s += `<text class="t tb" x="${x}" y="38" text-anchor="middle">${label}</text>`;
+  });
+  rows.forEach(([a, b, label, c], i) => {
+    const y = top + i * gap;
+    s += `<circle class="num num-${c}" cx="26" cy="${y}" r="11"/>`;
+    s += `<text class="tm" x="26" y="${y + 4}" text-anchor="middle" style="font-size:11px">${i + 1}</text>`;
+    if (a === b) {
+      const x = X[a], right = a !== 'worker';
+      const d = right ? `M${x} ${y - 7} h30 v16 h-28` : `M${x} ${y - 7} h-30 v16 h28`;
+      s += `<path class="a a-${c}" d="${d}" marker-end="url(#m-${c})"/>`;
+      s += `<text class="t halo" x="${right ? x + 40 : x - 40}" y="${y + 5}" text-anchor="${right ? 'start' : 'end'}">${esc(label)}</text>`;
+    } else {
+      const x1 = X[a], x2 = X[b], dir = Math.sign(x2 - x1);
+      s += `<line class="a a-${c}" x1="${x1}" y1="${y}" x2="${x2 - dir * 2}" y2="${y}" marker-end="url(#m-${c})"/>`;
+      s += `<text class="t halo" x="${(x1 + x2) / 2}" y="${y - 8}" text-anchor="middle">${esc(label)}</text>`;
+    }
+  });
+  s += '</svg>';
+  document.getElementById('seq').innerHTML = s;
+
+  /* ---------- 버퍼 시뮬레이터 ---------- */
+  const CAP = 16;
+  const SCEN = {
+    split: ['hel', 'lo\nwor', 'ld\n'],
+    multi: ['a\nb\nc\n'],
+    long: ['x'.repeat(20)]
+  };
+  const CODE = [
+    ['read', 'int n = ch.read(c.in);'],
+    ['eof', 'if (n == -1) { closeConnection(key); return; }'],
+    ['flip', 'c.in.flip();'],
+    ['scan', "for (i = position; i < limit; i++) if (get(i) == '\\n') {"],
+    ['dispatch', '    dispatch(key, c, line);  lineStart = i + 1;  }'],
+    ['position', 'c.in.position(lineStart);'],
+    ['compact', 'c.in.compact();'],
+    ['full', 'if (!c.in.hasRemaining()) closeConnection(key);']
+  ];
+  const show = str => '"' + str.replace(/\n/g, '\\n') + '"';
+
+  function build(chunks) {
+    const buf = Array(CAP).fill(null);
+    let pos = 0, lim = CAP, mode = 'write';
+    const lines = [], steps = [];
+    const snap = (code, title, desc, ex = {}) => steps.push({
+      code, title, desc, buf: buf.slice(), pos, lim, mode, lines: lines.slice(),
+      hl: ex.hl || null, closed: !!ex.closed
+    });
+    snap([], '연결 직후', 'accept()가 new Connection()을 만들며 in = ByteBuffer.allocate(MAX_LINE). 비어 있는 쓰기 모드로, position = 0, limit = capacity입니다.');
+    for (let k = 0; k < chunks.length; k++) {
+      const data = chunks[k];
+      const n = Math.min(data.length, lim - pos);
+      const from = pos;
+      for (let j = 0; j < n; j++) buf[pos + j] = data[j];
+      pos += n;
+      snap(['read', 'eof'], `read #${k + 1}: ${n}바이트`,
+        `소켓에서 ${show(data.slice(0, n))}를 읽어 index ${from}부터 이어 씁니다. n이 -1이 아니므로 계속합니다.` +
+        (n < data.length ? ` 빈칸이 ${n}칸뿐이라 나머지 ${data.length - n}바이트는 커널 수신 버퍼에 남습니다.` : ''),
+        { hl: [from, pos] });
+      mode = 'read'; lim = pos; pos = 0;
+      snap(['flip'], 'flip()', `읽기 모드로 바꿉니다. limit = ${lim}(채운 끝), position = 0. 이제 [0, ${lim}) 구간을 훑습니다.`);
+      let lineStart = pos, found = 0;
+      for (let i = pos; i < lim; i++) {
+        if (buf[i] === '\n') {
+          const line = buf.slice(lineStart, i).join('');
+          lines.push(line); found++;
+          snap(['scan', 'dispatch'], `'\\n' 발견 · index ${i}`,
+            `[${lineStart}, ${i}) 구간을 복사해 ${show(line)}를 dispatch합니다. get(i)와 get(lineStart, line)은 절대 위치 읽기라 position이 움직이지 않습니다. lineStart = ${i + 1}.`,
+            { hl: [lineStart, i + 1] });
+          lineStart = i + 1;
+        }
+      }
+      if (!found) snap(['scan'], '줄바꿈 없음', `[${pos}, ${lim})에 '\\n'이 없습니다. 줄이 아직 완성되지 않아 아무것도 dispatch하지 않습니다.`, { hl: [pos, lim] });
+      pos = lineStart;
+      const rest = buf.slice(pos, lim).join('');
+      snap(['position'], `position(${lineStart})`,
+        pos === lim ? '모든 바이트를 줄로 처리했습니다. 남은 미완성 줄이 없습니다.'
+                    : `처리한 앞부분은 소비한 것으로 표시합니다. [${pos}, ${lim})의 ${show(rest)}가 미완성 줄로 남습니다.`,
+        pos < lim ? { hl: [pos, lim] } : {});
+      const rem = lim - pos;
+      for (let j = 0; j < rem; j++) buf[j] = buf[pos + j];
+      mode = 'write'; pos = rem; lim = CAP;
+      snap(['compact'], 'compact()',
+        rem ? `남은 ${rem}바이트를 맨 앞으로 당기고 쓰기 모드로 돌아갑니다. position = ${rem}, limit = ${CAP}. 다음 read는 index ${rem}부터 이어 씁니다. 뒤쪽 칸의 옛 바이트는 지우지 않고 덮어쓸 자리로 둡니다.`
+            : `남은 바이트가 없어 position = 0입니다. 뒤쪽 칸의 옛 바이트는 지워지지 않지만 다음 read가 덮어씁니다.`,
+        rem ? { hl: [0, rem] } : {});
+      if (pos === CAP) {
+        snap(['full'], '빈칸 없음 → closeConnection', `compact 후에도 남은 공간이 없습니다. ${CAP}칸 안에 줄바꿈이 없으니 연결을 끊습니다. 실제 서버의 기준은 8,192바이트입니다.`, { closed: true });
+        break;
+      }
+      snap(['full'], 'hasRemaining() 확인', `빈칸이 ${CAP - pos}칸 있으므로 연결을 유지하고 select()로 돌아가 다음 데이터를 기다립니다.`);
+    }
+    return steps;
+  }
+
+  const $ = id => document.getElementById(id);
+  let steps = [], cur = 0, scen = 'split';
+
+  function render() {
+    const st = steps[cur];
+    $('count').textContent = `${cur + 1} / ${steps.length}`;
+    $('prev').disabled = cur === 0;
+    $('next').disabled = cur === steps.length - 1;
+    $('st-title').textContent = st.title;
+    const m = $('st-mode');
+    m.className = 'mode ' + (st.closed ? 'closed' : st.mode);
+    m.textContent = st.closed ? '연결 닫힘' : (st.mode === 'write' ? '쓰기 모드 · 채우는 중' : '읽기 모드 · 꺼내는 중');
+    $('st-desc').textContent = st.desc;
+
+    let cells = '', idx = '', marks = '';
+    for (let i = 0; i < CAP; i++) {
+      const ch = st.buf[i];
+      let cls = 'cell';
+      if (st.mode === 'write') cls += i < st.pos ? ' live' : ' free';
+      else cls += i < st.pos ? ' consumed' : (i < st.lim ? ' unread' : ' beyond');
+      if (st.hl && i >= st.hl[0] && i < st.hl[1]) cls += ' hl';
+      if (ch === '\n') cls += ' nl';
+      const txt = ch === null ? '' : (ch === '\n' ? '\\n' : ch);
+      cells += `<div class="${cls}">${txt}</div>`;
+      idx += `<span>${i}</span>`;
+    }
+    cells += '<div class="cell end">cap</div>';
+    idx += `<span>${CAP}</span>`;
+    for (let i = 0; i <= CAP; i++) {
+      const p = st.pos === i, l = st.lim === i;
+      marks += `<span>${p ? '<span class="p">▲P</span>' : ''}${p && l ? '<br>' : ''}${l ? '<span class="l">▲L</span>' : ''}</span>`;
+    }
+    $('cells').innerHTML = cells;
+    $('idx').innerHTML = idx;
+    $('marks').innerHTML = marks;
+
+    $('lines').innerHTML = st.lines.length
+      ? st.lines.map(l => `<span>${esc(show(l))}</span>`).join('')
+      : '<em>아직 없음</em>';
+
+    $('code').innerHTML = CODE.map(([k, t]) =>
+      `<span class="ln${st.code.includes(k) ? ' on' : ''}">${esc(t)}</span>`).join('');
+  }
+
+  function load(name) {
+    scen = name; steps = build(SCEN[name]); cur = 0;
+    document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sc === name)));
+    render();
+  }
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => load(b.dataset.sc)));
+  $('prev').addEventListener('click', () => { if (cur > 0) { cur--; render(); } });
+  $('next').addEventListener('click', () => { if (cur < steps.length - 1) { cur++; render(); } });
+  document.addEventListener('keydown', e => {
+    if (e.target.closest && e.target.closest('input, textarea, select')) return;
+    if (e.key === 'ArrowRight' && cur < steps.length - 1) { cur++; render(); }
+    if (e.key === 'ArrowLeft' && cur > 0) { cur--; render(); }
+  });
+  load('split');
+})();
+</script>
+
+</html>

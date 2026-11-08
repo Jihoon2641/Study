@@ -1,0 +1,279 @@
+<title>NIO Selector 내부 구조</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 레이아웃: 한 열 기술 문서. 큰 구조도 1장 → 키 해부 → select() 한 바퀴 → 레벨 트리거 비교 */
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --fg: #18202d;
+  --muted: #586274;
+  --line: #c6cedb;
+  --accent: #0a6a94;
+  --accent-soft: #e3f1f8;
+  --hot: #b9431a;
+  --hot-soft: #fbeae3;
+  --sans: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f131a; --surface: #171c25; --fg: #e2e7ef; --muted: #98a3b5; --line: #323c4d;
+    --accent: #55b6e2; --accent-soft: #14303f; --hot: #f08c55; --hot-soft: #3a2219; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f131a; --surface: #171c25; --fg: #e2e7ef; --muted: #98a3b5; --line: #323c4d;
+  --accent: #55b6e2; --accent-soft: #14303f; --hot: #f08c55; --hot-soft: #3a2219; color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+header { display: flex; flex-direction: column; gap: 10px; max-width: 70ch; }
+.eyebrow { font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.25; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-size: 21px; margin: 0; text-wrap: balance; font-weight: 700; }
+p { margin: 0; max-width: 70ch; }
+.lead { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+code, .mono { font-family: var(--mono); font-size: .9em; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.scroll svg { display: block; width: 100%; min-width: 820px; height: auto; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 75ch; }
+
+/* SVG 요소 — 색은 모두 토큰에서 */
+.bx { fill: var(--surface); stroke: var(--line); stroke-width: 1.3; }
+.bx-sel { fill: var(--bg); stroke: var(--fg); stroke-opacity: .55; stroke-width: 1.5; }
+.bx-hi { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.bx-hot { fill: var(--hot-soft); stroke: var(--hot); stroke-width: 1.5; }
+.t { fill: var(--fg); font: 600 13px var(--mono); }
+.tl { fill: var(--fg); font: 700 15px var(--sans); }
+.d { fill: var(--muted); font: 12px var(--sans); }
+.lab { fill: var(--fg); font: 600 12px var(--sans); }
+.lab-acc { fill: var(--accent); font: 600 12px var(--sans); }
+.lab-hot { fill: var(--hot); font: 600 12px var(--sans); }
+.ar { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+.ar-acc { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+.ar-hot { stroke: var(--hot); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+.ah { fill: var(--fg); }
+.ah-acc { fill: var(--accent); }
+.ah-hot { fill: var(--hot); }
+.tick { stroke: var(--hot); stroke-width: 1; }
+.tick-ok { stroke: var(--accent); stroke-width: 2.4; }
+.axis { stroke: var(--line); stroke-width: 1.2; }
+
+/* SelectionKey 해부 */
+.key { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.key > div { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.key .k { font: 600 14px var(--mono); color: var(--accent); }
+.key .who { font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.key p { font-size: 14px; }
+
+.rule { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.rule > div { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rule .hot { border-color: var(--hot); background: var(--hot-soft); }
+.rule h3 { margin: 0; font-size: 15px; }
+@media (max-width: 640px) { .rule { grid-template-columns: 1fr; } }
+
+/* select() 한 바퀴 */
+ol.cycle { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; border-left: 2px solid var(--line); counter-reset: s; }
+ol.cycle li { counter-increment: s; position: relative; padding: 0 0 18px 28px; display: flex; flex-direction: column; gap: 2px; }
+ol.cycle li::before { content: counter(s); position: absolute; left: -12px; top: 1px; width: 22px; height: 22px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); color: var(--accent); font: 600 11px/18px var(--mono); text-align: center; }
+ol.cycle li.block::before { background: var(--accent); color: var(--bg); }
+ol.cycle .m { font: 600 13.5px var(--mono); }
+ol.cycle .m span { color: var(--muted); font-weight: 400; }
+ol.cycle p { font-size: 14px; color: var(--muted); }
+ol.cycle li.caller { padding-top: 6px; }
+ol.cycle li.caller::before { border-color: var(--hot); color: var(--hot); content: "!"; }
+
+.nums { font-variant-numeric: tabular-nums; }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<main>
+  <header>
+    <span class="eyebrow">java.nio.channels.Selector</span>
+    <h1>스레드 하나가 수천 개 연결을 지켜보는 구조</h1>
+    <p class="lead">Selector는 I/O를 대신 해 주지 않습니다. OS에게 "이 소켓들 중 지금 막히지 않고 읽거나 쓸 수 있는 것"을 물어보고, 그 답을 SelectionKey 집합으로 돌려줄 뿐입니다. 실제 <code>read()</code>·<code>write()</code>는 이벤트 루프 스레드가 채널에 직접 호출합니다.</p>
+  </header>
+
+  <section>
+    <h2>전체 구조</h2>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 990 600" role="img" aria-label="이벤트 루프가 select()로 Selector를 호출하면 Selector가 interest 변경을 OS에 반영하고 블로킹 대기한 뒤, OS가 돌려준 준비된 fd를 SelectionKey로 바꿔 selectedKeys에 넣어 반환한다. 실제 읽기·쓰기는 이벤트 루프가 채널에 직접 호출하고, 워커 스레드는 결과를 큐에 넣고 wakeup으로 루프를 깨운다.">
+          <defs>
+            <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-acc" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hot" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+
+          <!-- 1층: 애플리케이션 스레드 -->
+          <rect class="bx-hi" x="100" y="24" width="300" height="80" rx="5"/>
+          <text class="t" x="120" y="54">이벤트 루프 스레드</text>
+          <text class="d" x="120" y="76">select() → 키 처리 → it.remove() → 반복</text>
+          <text class="d" x="120" y="94">Selector를 만지는 유일한 스레드</text>
+
+          <rect class="bx" x="470" y="42" width="200" height="44" rx="5"/>
+          <text class="t" x="570" y="62" text-anchor="middle">tasks 큐</text>
+          <text class="d" x="570" y="78" text-anchor="middle">스레드 안전한 큐</text>
+
+          <rect class="bx" x="740" y="24" width="220" height="80" rx="5"/>
+          <text class="t" x="760" y="54">워커 스레드 풀</text>
+          <text class="d" x="760" y="76">느린 handler 실행</text>
+          <text class="d" x="760" y="94">루프를 막지 않기 위해 분리</text>
+
+          <line class="ar" x1="738" y1="64" x2="674" y2="64" marker-end="url(#a)"/>
+          <text class="lab" x="706" y="56" text-anchor="middle">응답 add</text>
+          <line class="ar" x1="468" y1="64" x2="404" y2="64" marker-end="url(#a)"/>
+          <text class="lab" x="436" y="56" text-anchor="middle">꺼내 처리</text>
+
+          <!-- 1층 ↔ 2층 -->
+          <line class="ar-acc" x1="180" y1="106" x2="180" y2="148" marker-end="url(#aa)"/>
+          <text class="lab-acc" x="188" y="132">① select()</text>
+          <line class="ar-acc" x1="330" y1="148" x2="330" y2="108" marker-end="url(#aa)"/>
+          <text class="lab-acc" x="338" y="132">⑤ 준비된 키 수</text>
+          <line class="ar" x1="839" y1="106" x2="839" y2="193" marker-end="url(#a)"/>
+          <text class="lab" x="847" y="132">wakeup()</text>
+
+          <!-- 2층: Selector -->
+          <rect class="bx-sel" x="100" y="150" width="860" height="200" rx="6"/>
+          <text class="tl" x="124" y="179">Selector</text>
+          <text class="d" x="204" y="179">구현체는 OS별: EPollSelectorImpl · KQueueSelectorImpl · WEPollSelectorImpl(Windows)</text>
+
+          <rect class="bx" x="124" y="195" width="190" height="62" rx="4"/>
+          <text class="t" x="138" y="220">keys</text>
+          <text class="d" x="138" y="242">등록된 모든 키</text>
+
+          <rect class="bx-hi" x="330" y="195" width="190" height="62" rx="4"/>
+          <text class="t" x="344" y="220">selectedKeys</text>
+          <text class="d" x="344" y="242">준비된 키 · 지우는 건 호출자</text>
+
+          <rect class="bx" x="536" y="195" width="190" height="62" rx="4"/>
+          <text class="t" x="550" y="220">cancelledKeys</text>
+          <text class="d" x="550" y="242">cancel()된 키 · 다음 select에서 해제</text>
+
+          <rect class="bx" x="742" y="195" width="194" height="62" rx="4"/>
+          <text class="t" x="756" y="220">wakeup 신호</text>
+          <text class="d" x="756" y="242">OS 대기에 함께 등록된 fd</text>
+
+          <rect class="bx" x="124" y="273" width="602" height="56" rx="4"/>
+          <text class="t" x="138" y="296">fdToKey</text>
+          <text class="d" x="210" y="296">fd 번호 → SelectionKey</text>
+          <text class="d" x="138" y="318">OS가 알려 준 fd를 키로 바꿔 selectedKeys에 넣고 readyOps를 기록</text>
+          <line class="ar-acc" x1="425" y1="271" x2="425" y2="259" marker-end="url(#aa)"/>
+
+          <rect class="bx" x="742" y="273" width="194" height="56" rx="4"/>
+          <text class="t" x="756" y="296">updateKeys</text>
+          <text class="d" x="756" y="318">interestOps 변경 대기열</text>
+
+          <!-- 2층 ↔ 3층 -->
+          <line class="ar" x1="839" y1="331" x2="839" y2="398" marker-end="url(#a)"/>
+          <text class="lab" x="831" y="378" text-anchor="end">② interest 반영 (epoll_ctl)</text>
+          <line class="ar-acc" x1="300" y1="352" x2="300" y2="398" marker-end="url(#aa)"/>
+          <text class="lab-acc" x="308" y="380">③ 블로킹 대기</text>
+          <line class="ar-acc" x1="450" y1="398" x2="450" y2="333" marker-end="url(#aa)"/>
+          <text class="lab-acc" x="458" y="380">④ 준비된 fd 목록</text>
+
+          <!-- 3층: OS -->
+          <rect class="bx" x="100" y="400" width="860" height="66" rx="5"/>
+          <text class="t" x="124" y="428">OS 준비 상태 API</text>
+          <text class="d" x="124" y="450">epoll (Linux) · kqueue (macOS) · WEPoll/AFD (Windows)</text>
+          <text class="d" x="936" y="428" text-anchor="end">fd마다 관심 이벤트를 보관하고</text>
+          <text class="d" x="936" y="450" text-anchor="end">하나라도 준비되면 대기 중인 스레드를 깨움</text>
+
+          <!-- 4층 → 3층 -->
+          <line class="ar" x1="236" y1="514" x2="236" y2="468" marker-end="url(#a)"/>
+          <line class="ar" x1="530" y1="514" x2="530" y2="468" marker-end="url(#a)"/>
+          <line class="ar" x1="824" y1="514" x2="824" y2="468" marker-end="url(#a)"/>
+          <text class="lab" x="538" y="496">데이터 도착 · 송신 버퍼 여유 · 연결 요청</text>
+
+          <!-- 4층: 커널 소켓 -->
+          <rect class="bx" x="100" y="516" width="272" height="60" rx="5"/>
+          <text class="t" x="118" y="541">ServerSocketChannel</text>
+          <text class="d" x="118" y="562">accept 대기 큐 → OP_ACCEPT</text>
+          <rect class="bx" x="394" y="516" width="272" height="60" rx="5"/>
+          <text class="t" x="412" y="541">SocketChannel A</text>
+          <text class="d" x="412" y="562">수신 버퍼 → OP_READ · 송신 버퍼 → OP_WRITE</text>
+          <rect class="bx" x="688" y="516" width="272" height="60" rx="5"/>
+          <text class="t" x="706" y="541">SocketChannel B …</text>
+          <text class="d" x="706" y="562">연결마다 커널 버퍼 한 쌍</text>
+
+          <!-- 직접 I/O 경로 -->
+          <polyline class="ar-hot" points="98,64 56,64 56,546 96,546" marker-end="url(#ah)"/>
+          <text class="lab-hot" transform="translate(46 330) rotate(-90)" text-anchor="middle">⑥ read() · write() · accept() 직접 호출 — 논블로킹, 준비된 채널만</text>
+        </svg>
+      </div>
+      <figcaption>파란 경로가 <code>select()</code> 한 번의 흐름이고, 주황 점선이 실제 데이터가 오가는 경로입니다. Selector는 준비 여부만 알려 주고, 바이트는 이벤트 루프가 채널에서 직접 꺼냅니다. 워커는 Selector를 직접 건드리지 않고 큐에 넣은 뒤 <code>wakeup()</code>으로 루프를 깨웁니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>SelectionKey 한 개에 들어 있는 것</h2>
+    <p><code>channel.register(selector, ops, attachment)</code>가 돌려주는 키는 "이 채널을 이 Selector가 지켜본다"는 등록 정보 한 건입니다. 채널 하나를 Selector 여러 개에 등록하면 키도 여러 개 생깁니다.</p>
+    <div class="key">
+      <div><span class="who">누가 쓰나 · 등록</span><span class="k">channel()</span><p>지켜보는 채널. 반드시 <code>configureBlocking(false)</code> 상태여야 등록됩니다.</p></div>
+      <div><span class="who">누가 쓰나 · 애플리케이션</span><span class="k">interestOps</span><p>"무엇이 준비되면 알려 줘". 바꾸면 updateKeys에 들어가 다음 <code>select()</code>에서 OS에 반영됩니다.</p></div>
+      <div><span class="who">누가 쓰나 · Selector</span><span class="k">readyOps</span><p>지난 <code>select()</code>에서 확인된 준비 상태. <code>isReadable()</code> 등은 이 값을 읽습니다.</p></div>
+      <div><span class="who">누가 쓰나 · 애플리케이션</span><span class="k">attachment</span><p>연결별 상태를 붙이는 자리. 읽기 버퍼·쓰기 큐를 여기에 두면 버퍼가 연결끼리 섞이지 않습니다.</p></div>
+    </div>
+    <div class="rule">
+      <div><h3>selectedKeys에 없던 키가 준비되면</h3><p>readyOps를 새 값으로 <strong>덮어쓰고</strong> 집합에 추가합니다.</p></div>
+      <div class="hot"><h3>이미 selectedKeys에 있는 키라면</h3><p>readyOps에 새 비트를 <strong>OR로 더할 뿐</strong>, 지난번 비트를 지우지 않습니다. <code>it.remove()</code>를 빠뜨리면 지난번 <code>isAcceptable()</code>이 계속 참으로 남아, <code>accept()</code>가 <code>null</code>을 돌려주고 NPE로 이어집니다. 예제의 BadEchoServer는 <code>select</code> 2회 만에 멈췄습니다.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><code>select()</code> 한 바퀴 안에서 일어나는 일</h2>
+    <p>JDK 11 이후 구현 기준입니다. 세부 메서드 이름은 OS별 구현체마다 조금씩 다릅니다.</p>
+    <ol class="cycle">
+      <li><span class="m">processUpdateQueue() <span>· updateKeys 비우기</span></span><p>다른 스레드나 이전 루프에서 바뀐 interestOps를 OS 관심 목록에 반영합니다.</p></li>
+      <li><span class="m">processDeregisterQueue() <span>· cancelledKeys 비우기</span></span><p>취소된 키를 OS에서 빼고 keys·selectedKeys에서 지웁니다. 채널을 닫아도 실제 해제는 여기서 일어납니다.</p></li>
+      <li class="block"><span class="m">OS 대기 <span>· epoll_wait / kevent / WEPoll</span></span><p>준비된 fd가 생기거나, 타임아웃이 지나거나, <code>wakeup()</code>이 신호 fd에 쓰기 전까지 스레드가 여기서 멈춥니다. 등록된 연결이 몇 개든 대기하는 스레드는 하나입니다.</p></li>
+      <li><span class="m">processDeregisterQueue() <span>· 대기 중 취소된 키 정리</span></span><p>대기하는 동안 다른 스레드가 <code>cancel()</code>한 키를 한 번 더 처리합니다.</p></li>
+      <li><span class="m">processEvents() <span>· fd → 키 → selectedKeys</span></span><p>fdToKey로 키를 찾아 위의 덮어쓰기/OR 규칙대로 readyOps를 기록합니다. wakeup 신호 fd였다면 신호를 비우기만 합니다.</p></li>
+      <li><span class="m">반환 <span>· 새로 추가되거나 readyOps가 바뀐 키 수</span></span><p>0일 수도 있습니다. <code>wakeup()</code>으로 깨어났을 때가 대표적입니다.</p></li>
+      <li class="caller"><span class="m">호출자 몫 <span>· selectedKeys 순회 → 처리 → it.remove()</span></span><p>Selector는 selectedKeys를 비워 주지 않습니다. 비우는 일은 항상 애플리케이션 코드가 합니다.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>준비 상태는 해소될 때까지 매번 다시 알려 준다</h2>
+    <p>Java Selector는 레벨 트리거(level-triggered)처럼 동작합니다. "준비 상태가 바뀌었을 때"가 아니라 "지금 준비돼 있으면" 매번 키를 돌려줍니다. 송신 버퍼는 거의 항상 비어 있으므로 OP_WRITE는 켜 두기만 해도 거의 항상 준비 상태입니다.</p>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 990 200" role="img" aria-label="OP_WRITE를 항상 켜 두면 유휴 상태에서도 select가 초당 약 105만 번 반환되고, 보낼 데이터가 있을 때만 켜면 요청이 올 때만 반환된다.">
+          <defs>
+            <pattern id="dense" width="4" height="40" patternUnits="userSpaceOnUse"><line class="tick" x1="1" y1="0" x2="1" y2="40"/></pattern>
+          </defs>
+          <text class="t" x="20" y="38">OP_WRITE 항상 켬</text>
+          <text class="d" x="20" y="58">유휴 연결 1개</text>
+          <line class="axis" x1="220" y1="70" x2="960" y2="70"/>
+          <rect x="220" y="28" width="740" height="40" fill="url(#dense)"/>
+          <text class="lab-hot nums" x="960" y="92" text-anchor="end">select 반환 1,057,854회/초 · CPU 한 코어 100%</text>
+
+          <text class="t" x="20" y="138">쓸 것이 있을 때만 켬</text>
+          <text class="d" x="20" y="158">같은 연결, 요청 2건</text>
+          <line class="axis" x1="220" y1="170" x2="960" y2="170"/>
+          <line class="tick-ok" x1="380" y1="130" x2="380" y2="170"/>
+          <line class="tick-ok" x1="390" y1="130" x2="390" y2="170"/>
+          <line class="tick-ok" x1="700" y1="130" x2="700" y2="170"/>
+          <line class="tick-ok" x1="710" y1="130" x2="710" y2="170"/>
+          <text class="lab-acc" x="385" y="124" text-anchor="middle">READ → WRITE</text>
+          <text class="lab-acc" x="705" y="124" text-anchor="middle">READ → WRITE</text>
+          <text class="lab-acc nums" x="960" y="192" text-anchor="end">나머지 시간은 OS 대기에서 잠듦 (테스트: 0.5초 동안 5회 미만)</text>
+        </svg>
+      </div>
+      <figcaption>세로선 하나가 <code>select()</code> 반환 한 번입니다. 위쪽 줄은 실제 횟수를 그릴 수 없을 만큼 촘촘해서 패턴으로 표시했습니다. 끊어진 연결에서 <code>read()</code>가 -1을 돌려줬는데 닫지 않은 경우도 같은 이유로 초당 435,889회 깨어났습니다. 수치는 예제 문서의 JDK 25 · Windows 11 실측값입니다.</figcaption>
+    </figure>
+  </section>
+
+  <footer>NIO셀렉터 학습 노트의 그림 자료입니다. 자세한 설명과 실행 코드는 같은 폴더의 NIO셀렉터-이론.md, NIO셀렉터-예제.md에 있습니다.</footer>
+</main>
