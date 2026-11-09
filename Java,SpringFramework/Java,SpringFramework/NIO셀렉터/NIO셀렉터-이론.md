@@ -9,7 +9,7 @@
 
 # NIO Selector
 
-관련 문서: [예제](./NIO셀렉터-예제.md) · [입출력 스트림](../입출력스트림/입출력스트림-이론.md) · [volatile](../volatile/volatile-이론.md)
+관련 문서: [예제](./NIO셀렉터-예제.md) · [가상 스레드와 비교](./NIO셀렉터-vs-가상스레드.md) · [입출력 스트림](../입출력스트림/입출력스트림-이론.md) · [volatile](../volatile/volatile-이론.md)
 
 ---
 
